@@ -65,7 +65,7 @@ start: restart it after logging in to a CLI.
 | Command | |
 |---|---|
 | `daemon` (default) | `multica login --token $MULTICA_TOKEN`, then `multica daemon start --foreground`; starts Docker per `DIND_MODE` (default `auto`). Without a token it logs a hint and waits. |
-| `shell` | web terminal: `ttyd` + `tmux new -A -s main` on `$TTYD_PORT` (7681). Uses an existing Docker daemon, never starts one. No authentication of its own: put it behind an authenticating proxy. |
+| `shell` | web terminal (`ttyd`) on `$TTYD_PORT` (7681): a login shell per browser tab; `https://<host>/?arg=tmux` attaches the persistent tmux session `main` instead. Uses an existing Docker daemon, never starts one. No authentication of its own: put it behind an authenticating proxy. |
 | `doctor [--gpu] [--json] [--strict]` | runtime check |
 | anything else | runs it after the same setup (`DIND_MODE` default `off`) |
 
@@ -85,6 +85,10 @@ Mount a volume at `/home/agent`: logins and CLI state live there and survive res
 | Multica | – | `MULTICA_TOKEN` (personal access token), re-applied on every start |
 | GitHub | – | `GH_TOKEN` (gh as git credential helper) |
 | Gitea | – | `GITEA_URL` + `GITEA_TOKEN` (`tea` login + git credential helper; `GITEA_USER` optional) |
+
+Do the logins in the default web shell, not in `?arg=tmux`: the browser terminal wraps a long OAuth
+URL itself, so clicking or copying it gets the whole URL. tmux redraws wrapped lines row by row,
+which cuts the URL at the row end (e.g. `Invalid OAuth request: Missing state parameter`).
 
 MCP servers with an OAuth `localhost` callback: open the URL, let the browser fail on the
 redirect, copy that URL and run `curl '<url>'` in the web shell.

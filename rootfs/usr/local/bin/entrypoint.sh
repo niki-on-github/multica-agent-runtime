@@ -2,7 +2,8 @@
 # Entrypoint of multica-agent-runtime, started by `tini -g` (signals reach dockerd and the main process).
 #
 #   daemon (default)  Multica daemon in the foreground; Docker per DIND_MODE (default auto)
-#   shell             web terminal: ttyd + tmux session `main` on $TTYD_PORT; uses an existing
+#   shell             web terminal (ttyd) on $TTYD_PORT: login shell, `?arg=tmux` for the tmux
+#                     session `main`; uses an existing
 #                     Docker daemon (the daemon container of the same pod), never starts one
 #   doctor [--gpu]    runtime-doctor
 #   <command>         runs the command after the same setup (DIND_MODE default off)
@@ -83,10 +84,10 @@ run_daemon() {
 }
 
 run_shell() {
-  log "web terminal on :$TTYD_PORT (tmux session main)"
-  # TTYD_ARGS: extra ttyd flags, split on whitespace
+  log "web terminal on :$TTYD_PORT (login shell; ?arg=tmux for the tmux session main)"
+  # TTYD_ARGS: extra ttyd flags, split on whitespace. --url-arg: web-shell.sh only accepts `tmux`.
   # shellcheck disable=SC2086
-  exec ttyd --writable --port "$TTYD_PORT" --check-origin ${TTYD_ARGS:-} tmux new -A -s main
+  exec ttyd --writable --port "$TTYD_PORT" --check-origin --url-arg ${TTYD_ARGS:-} "$LIB/web-shell.sh"
 }
 
 case "$cmd" in
