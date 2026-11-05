@@ -88,8 +88,16 @@ RUN curl -fsSL -o /tmp/chrome.zip \
     "https://storage.googleapis.com/chrome-for-testing-public/${CHROME_VERSION}/linux64/chrome-linux64.zip"; \
   unzip -q /tmp/chrome.zip -d /opt; \
   mv /opt/chrome-linux64 /opt/chrome-for-testing; \
-  mapfile -t deps < <(sed -E 's/ *\|.*//; s/ *\(.*\)//' /opt/chrome-for-testing/deb.deps | sort -u); \
+  mapfile -t wanted < <(sed -E 's/ *\|.*//; s/ *\(.*\)//' /opt/chrome-for-testing/deb.deps | sort -u); \
   apt-get update; \
+  # deb.deps uses pre-t64 names; on Ubuntu 24.04 several are virtual (libasound2 -> libasound2t64)
+  deps=(); \
+  for d in "${wanted[@]}"; do \
+    if [ "$(apt-cache policy "$d" | sed -n 's/ *Candidate: //p')" != "(none)" ]; then deps+=("$d"); continue; fi; \
+    p=$(apt-cache showpkg "$d" | sed -n '/^Reverse Provides:/,$p' | awk 'NR > 1 {print $1}' | grep -m1 t64 || true); \
+    [ -n "$p" ] || { echo "no package for $d" >&2; exit 1; }; \
+    deps+=("$p"); \
+  done; \
   apt-get install -y --no-install-recommends "${deps[@]}"; \
   rm -rf /var/lib/apt/lists/* /tmp/chrome.zip; \
   install -D -m 0755 /tmp/chrome-wrapper.sh /opt/google/chrome/chrome; \

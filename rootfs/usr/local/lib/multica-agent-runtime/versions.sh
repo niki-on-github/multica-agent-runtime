@@ -5,7 +5,8 @@ HOME=$(mktemp -d)
 export HOME
 trap 'rm -rf "$HOME"' EXIT
 
-first_line() { "$@" 2>/dev/null | head -n1 | tr -d '\r'; }
+# first output line, without colour codes
+first_line() { "$@" 2>/dev/null | head -n1 | sed -E 's/\x1b\[[0-9;]*m//g; s/[[:space:]]+$//' | tr -d '\r'; }
 
 declare -A v=(
   [variant]="${VARIANT:-unknown}"
@@ -18,7 +19,7 @@ declare -A v=(
   [pnpm]="$(first_line pnpm --version)"
   [python]="$(first_line python3 --version)"
   [uv]="$(first_line uv --version)"
-  [nix]="$(first_line nix --version)"
+  [nix]="$(first_line /nix/var/nix/profiles/default/bin/nix --version)"
   [git]="$(first_line git --version)"
   [gh]="$(first_line gh --version)"
   [tea]="$(first_line tea --version)"

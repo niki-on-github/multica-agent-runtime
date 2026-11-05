@@ -83,7 +83,7 @@ Real `dockerd`, listening on `DOCKER_HOST=unix:///run/agent/docker.sock`, data i
 | Mode | Container needs |
 |---|---|
 | `auto` | picks the first that works: existing daemon → `external`, root + privileged → `rootful`, else `rootless` if its prerequisites are met (missing ones are logged), else `off` |
-| `rootless` | seccomp + AppArmor unconfined, unmasked `/proc`, `/dev/net/tun`, no `no_new_privs` (setuid `newuidmap`). In a user-namespaced pod start as root (uid 0 of the namespace) so the entrypoint can fit the subordinate ids |
+| `rootless` | seccomp + AppArmor unconfined, unmasked `/proc`, `/dev/net/tun`, `CAP_SYS_ADMIN` in the bounding set and no `no_new_privs` (both for the setuid `newuidmap`; the agent has no effective capabilities). In a user-namespaced pod start as root (uid 0 of the namespace) so the entrypoint can fit the subordinate ids |
 | `rootful` | `--privileged`, started as root (`--user 0`); the agent uses the daemon through the `docker` group |
 | `external` | only the CLI, against `DOCKER_HOST` |
 | `off` | no Docker |
@@ -95,7 +95,7 @@ rootless mode container IPs are not reachable from the agent.
 # rootless, as on Kubernetes (docs/kubernetes.md)
 docker run --rm -it \
   --security-opt seccomp=unconfined --security-opt apparmor=unconfined --security-opt systempaths=unconfined \
-  --device /dev/net/tun -v agent-home:/home/agent -v agent-data:/data \
+  --cap-add SYS_ADMIN --device /dev/net/tun -v agent-home:/home/agent -v agent-data:/data \
   -e DIND_MODE=rootless ghcr.io/niki-on-github/multica-agent-runtime:cpu bash -l
 
 # rootful

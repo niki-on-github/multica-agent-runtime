@@ -47,7 +47,7 @@ step "nix"
 [ -w /nix/store ] || fail "/nix/store not writable for the agent"
 nix eval --expr '1 + 1'
 nix run nixpkgs#hello
-NIX_CONFIG='extra-substituters = https://example.invalid' nix config show extra-substituters \
+NIX_CONFIG='extra-substituters = https://example.invalid' nix config show substituters \
   | grep -q example.invalid || fail "NIX_CONFIG not honoured"
 
 step "chrome (headless screenshot)"

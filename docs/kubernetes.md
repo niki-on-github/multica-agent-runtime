@@ -11,6 +11,7 @@ classes and secrets; the GitOps version for the `nixos-ai` cluster lives in that
 | `runAsUser` | `0` (root inside the user namespace: the entrypoint fits `/etc/subuid`, then drops to 1000) | `0` (starts dockerd, drops to 1000) |
 | `privileged` | no | **yes**: Docker access then equals root on the node |
 | `allowPrivilegeEscalation` | `true` (setuid `newuidmap`) | `true` |
+| `capabilities.add` | `[SYS_ADMIN]`: in the bounding set for `newuidmap` (the agent has no effective caps; with `hostUsers: false` it only applies inside the pod's user namespace) | (implied) |
 | `seccompProfile` / `appArmorProfile` | `Unconfined` | (implied) |
 | `procMount` | `Unmasked` (requires `hostUsers: false`) | (implied) |
 | `/dev/net/tun` | required (rootlesskit network): a device plugin, or a `hostPath` `CharDevice` volume | (implied) |
@@ -88,6 +89,8 @@ spec:
             runAsUser: 0
             runAsGroup: 0
             allowPrivilegeEscalation: true
+            capabilities:
+              add: [SYS_ADMIN]
             procMount: Unmasked
             seccompProfile: {type: Unconfined}
             appArmorProfile: {type: Unconfined}

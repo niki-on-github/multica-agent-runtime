@@ -36,6 +36,11 @@ dind_rootless_blockers() {
   if [ "$(no_new_privs)" != 0 ]; then
     echo "no_new_privs is set, setuid newuidmap cannot work (pod: allowPrivilegeEscalation: true)"
   fi
+  # newuidmap needs CAP_SYS_ADMIN in the bounding set to write a multi-range map (tested on 6.18);
+  # the agent itself runs without effective capabilities
+  if ! has_bound_cap 21; then
+    echo "CAP_SYS_ADMIN not in the bounding set, newuidmap cannot write the id map (pod: capabilities.add: [SYS_ADMIN])"
+  fi
   if [ ! -u /usr/bin/newuidmap ]; then
     echo "/usr/bin/newuidmap is not setuid"
   fi
@@ -147,6 +152,7 @@ dind_start_rootless() {
   mkdir -p "$DIND_DATA_ROOT/rootless"
   dockerd-rootless.sh --config-file "$DIND_CONFIG" --host "$DOCKER_HOST" \
     --data-root "$DIND_DATA_ROOT/rootless" >>"$DIND_LOG" 2>&1 &
+  DIND_PID=$!
   log "Docker: starting rootless dockerd, network $DOCKERD_ROOTLESS_ROOTLESSKIT_NET (log $DIND_LOG)"
 }
 
@@ -156,9 +162,13 @@ dind_wait() {
     if dind_ping; then
       return 0
     fi
+    # started here and already gone: no point in waiting
+    if [ -n "${DIND_PID:-}" ] && ! kill -0 "$DIND_PID" 2>/dev/null; then
+      break
+    fi
     sleep 1
   done
-  warn "Docker did not answer within ${timeout}s (mode $DIND_MODE); last log lines:"
+  warn "Docker is not answering (mode $DIND_MODE, waited up to ${timeout}s); last log lines:"
   tail -n 25 "$DIND_LOG" >&2 2>/dev/null || :
   return 1
 }

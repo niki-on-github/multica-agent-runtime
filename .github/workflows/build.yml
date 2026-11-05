@@ -120,6 +120,7 @@ jobs:
             --security-opt seccomp=unconfined \
             --security-opt apparmor=unconfined \
             --security-opt systempaths=unconfined \
+            --cap-add SYS_ADMIN \
             --device /dev/net/tun \
             --tmpfs /home/agent:uid=1000,gid=1000,exec \
             -v smoke-rootless:/data \

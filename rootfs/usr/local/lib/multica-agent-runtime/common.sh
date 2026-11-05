@@ -46,6 +46,12 @@ has_cap() {
   capeff=$(awk '/^CapEff:/ {print $2}' /proc/self/status)
   (( (16#$capeff >> bit) & 1 ))
 }
+# capability in the bounding set (what a setuid binary like newuidmap can get)
+has_bound_cap() {
+  local bit=$1 capbnd
+  capbnd=$(awk '/^CapBnd:/ {print $2}' /proc/self/status)
+  (( (16#$capbnd >> bit) & 1 ))
+}
 # masked /proc paths (container default) make the kernel refuse a fresh proc mount (rootlesskit)
 proc_masked() {
   awk '{print $5}' /proc/self/mountinfo | grep -qE '^/proc/(kcore|keys|timer_list|sched_debug|scsi|acpi|latency_stats)$'

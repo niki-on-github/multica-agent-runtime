@@ -120,7 +120,7 @@ the mode chosen at runtime:
 | `DIND_MODE` | Behaviour | Pod needs |
 |---|---|---|
 | `auto` (default) | preflight (seccomp from `/proc/$$/status`, AppArmor from `/proc/$$/attr/current`, `/proc` mask, userns, uid) picks the first working mode, logs the missing options otherwise | – |
-| `rootless` | `dockerd-rootless.sh` as uid 1000 (rootlesskit, slirp4netns), `DOCKER_HOST=unix:///run/agent/docker.sock` | seccomp + AppArmor `Unconfined`, `procMount: Unmasked`, preferably `hostUsers: false`; *(impl)* **`/dev/net/tun`** (every rootlesskit network driver needs it, `--net=host` is refused) and **`allowPrivilegeEscalation: true`** (setuid `newuidmap`) |
+| `rootless` | `dockerd-rootless.sh` as uid 1000 (rootlesskit, slirp4netns), `DOCKER_HOST=unix:///run/agent/docker.sock` | seccomp + AppArmor `Unconfined`, `procMount: Unmasked`, preferably `hostUsers: false`; *(impl)* **`/dev/net/tun`** (every rootlesskit network driver needs it, `--net=host` is refused) `, **`allowPrivilegeEscalation: true`** and **`capabilities.add: [SYS_ADMIN]`** (bounding set; setuid `newuidmap` cannot write the id map without it, found in local tests on kernel 6.18) |
 | `rootful` | container starts as root, starts `dockerd` (moby `hack/dind`, iptables-legacy), then `setpriv` to uid 1000 for the agent; no sudo | `privileged: true` |
 | `external` | a daemon already answers at `DOCKER_HOST` (sidecar, or the daemon container of the same pod), CLI only; *(impl)* the `shell` command always uses this | – |
 | `off` | no Docker | – |
