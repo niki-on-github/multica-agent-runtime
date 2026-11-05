@@ -1,0 +1,72 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended",
+    "docker:pinDigests",
+    "helpers:pinGitHubActionDigestsToSemver"
+  ],
+  "dependencyDashboard": true,
+  "dependencyDashboardTitle": "Renovate Dashboard",
+  "labels": ["renovatebot"],
+  "minimumReleaseAge": "1 day",
+  "prHourlyLimit": 0,
+  "prConcurrentLimit": 0,
+  "branchConcurrentLimit": 0,
+  "automerge": true,
+  "automergeType": "branch",
+  "ignoreTests": true,
+  "customDatasources": {
+    "chrome-for-testing": {
+      "defaultRegistryUrlTemplate": "https://googlechromelabs.github.io/chrome-for-testing/last-known-good-versions.json",
+      "transformTemplates": [
+        "{\"releases\": [{\"version\": channels.Stable.version}]}"
+      ]
+    }
+  },
+  "customManagers": [
+    {
+      "description": "ARG <NAME>_VERSION with a `# renovate: datasource=... depName=...` comment above it",
+      "customType": "regex",
+      "managerFilePatterns": ["/(^|/)Dockerfile$/"],
+      "matchStrings": [
+        "# renovate: datasource=(?<datasource>\\S+) depName=(?<depName>\\S+)( registryUrl=(?<registryUrl>\\S+))?( extractVersion=(?<extractVersion>\\S+))?( versioning=(?<versioning>\\S+))?\\s+ARG \\w+_VERSION=(?<currentValue>\\S+)"
+      ]
+    },
+    {
+      "description": "GitHub release binaries: version and sha256 of the release attachment",
+      "customType": "regex",
+      "managerFilePatterns": ["/(^|/)Dockerfile$/"],
+      "matchStrings": [
+        "# renovate-digest: depName=(?<depName>\\S+)\\s+ARG \\w+_VERSION=(?<currentValue>\\S+)\\s+ARG \\w+_SHA256=(?<currentDigest>[a-f0-9]{64})"
+      ],
+      "datasourceTemplate": "github-release-attachments"
+    }
+  ],
+  "packageRules": [
+    {
+      "description": "Agent CLIs in one commit (one build instead of cancelling each other)",
+      "matchPackageNames": ["@anthropic-ai/claude-code", "opencode-ai", "@openai/codex"],
+      "groupName": "agent CLIs"
+    },
+    {
+      "description": "Browser stack in one commit",
+      "matchPackageNames": ["chrome-for-testing", "@playwright/test", "@playwright/mcp", "chrome-devtools-mcp"],
+      "groupName": "browser"
+    },
+    {
+      "description": "CUDA base images (image and smoke test) together",
+      "matchPackageNames": ["docker.io/nvidia/cuda", "nvidia/cuda"],
+      "groupName": "cuda"
+    },
+    {
+      "description": "Docker engine and its apt packages",
+      "matchPackageNames": ["moby/moby"],
+      "groupName": "docker engine"
+    },
+    {
+      "description": "One commit for all GitHub Actions updates",
+      "matchManagers": ["github-actions"],
+      "groupName": "github actions"
+    }
+  ]
+}

@@ -1,0 +1,178 @@
+# multica-agent-runtime
+
+Container images that run the [Multica](https://github.com/multica-ai/multica) agent daemon with
+**Claude Code**, **OpenCode** and **Codex**, made for Kubernetes: Docker-in-Docker (rootless or
+rootful), a CUDA variant with GPU access for nested containers, Chrome for Testing + Playwright for
+browser tests, Nix with configurable caches, `gh` and `tea`, and a web terminal for the CLI logins.
+
+```
+ghcr.io/niki-on-github/multica-agent-runtime:<multica-tag>-<variant>[-<sha7>]
+```
+
+| Variant | Base | Use |
+|---|---|---|
+| `cpu` | Ubuntu 24.04 | default |
+| `cuda` | `nvidia/cuda:<ver>-runtime-ubuntu24.04` + nvidia-container-toolkit | GPU runner: CUDA in the agent container and in nested containers |
+
+Tags: `:<multica-tag>-<variant>` (moving), `:<multica-tag>-<variant>-<sha7>` (immutable, pin this by
+digest), `:<variant>` (latest). `<multica-tag>` is the Multica release the CLI comes from; keep it
+equal to your Multica server. Images are rebuilt on every dependency update (Renovate) and weekly.
+
+## What is inside
+
+| | |
+|---|---|
+| Multica | `multica` CLI/daemon (copied from the official backend image) |
+| Agents | Claude Code, OpenCode, Codex (npm, pinned, auto-update off) |
+| Browser | Chrome for Testing at `/opt/google/chrome/chrome`, `@playwright/test`, Playwright MCP, chrome-devtools-mcp, xvfb |
+| Containers | Docker engine (rootless extras, buildx, compose), slirp4netns, fuse-overlayfs; cuda: nvidia-container-toolkit, nvtop |
+| Git | git, git-lfs, gh, tea, openssh-client |
+| Dev | Node 24, npm, pnpm, Python 3 + venv + pip, uv/uvx, build-essential, Nix (single-user, flakes) |
+| Shell | bash, vim, tmux, ttyd, jq, yq, ripgrep, fd, rsync, sqlite3, curl, wget, bubblewrap, socat, network/debug tools |
+
+Everything else comes through Nix: `nix shell nixpkgs#go -c go version`.
+`doctor` (or `doctor --json`) shows versions, logins, Docker mode, GPU and cache reachability.
+
+## How Multica uses the agents
+
+The daemon finds every supported CLI on `PATH` and registers **one runtime per CLI and workspace**
+(e.g. "Cluster Runner · Claude Code", "Cluster Runner · OpenCode"). In the Multica UI an agent is
+bound to one runtime and model; issues assigned to it run with that CLI. Build with
+`--build-arg AGENTS="claude opencode"` to leave one out. The daemon detects CLIs and their models at
+start: restart it after logging in to a CLI.
+
+## Commands
+
+`tini` runs `entrypoint.sh <command>`:
+
+| Command | |
+|---|---|
+| `daemon` (default) | `multica login --token $MULTICA_TOKEN`, then `multica daemon start --foreground`; starts Docker per `DIND_MODE` (default `auto`). Without a token it logs a hint and waits. |
+| `shell` | web terminal: `ttyd` + `tmux new -A -s main` on `$TTYD_PORT` (7681). Uses an existing Docker daemon, never starts one. No authentication of its own: put it behind an authenticating proxy. |
+| `doctor [--gpu] [--json] [--strict]` | runtime check |
+| anything else | runs it after the same setup (`DIND_MODE` default `off`) |
+
+Startup (both `daemon` and `shell`): `$HOME` is seeded from `/etc/agent-skel` (missing files only),
+the CA bundle is spread to all tools, git/gh/tea are configured from env, a CDI spec is generated
+for visible GPUs, Docker is started.
+
+## Logins and persistence
+
+Mount a volume at `/home/agent`: logins and CLI state live there and survive restarts.
+
+| Tool | Login | Alternative |
+|---|---|---|
+| Claude Code (subscription) | `claude` → `/login` in the web shell (shows a URL, paste the code back) | `CLAUDE_CODE_OAUTH_TOKEN` from `claude setup-token` (1 year), `ANTHROPIC_API_KEY`, `ANTHROPIC_BASE_URL` |
+| OpenCode | `opencode auth login` | provider config (`OPENCODE_CONFIG`) with an API key |
+| Codex | `codex login --device-auth` | `OPENAI_API_KEY` |
+| Multica | – | `MULTICA_TOKEN` (personal access token), re-applied on every start |
+| GitHub | – | `GH_TOKEN` (gh as git credential helper) |
+| Gitea | – | `GITEA_URL` + `GITEA_TOKEN` (`tea` login + git credential helper; `GITEA_USER` optional) |
+
+MCP servers with an OAuth `localhost` callback: open the URL, let the browser fail on the
+redirect, copy that URL and run `curl '<url>'` in the web shell.
+
+`CLAUDE_CONFIG_DIR=$HOME/.claude` keeps all Claude Code state in one directory. Optional SSH keys:
+mount them at `/etc/agent-ssh` (copied to `~/.ssh` with mode 600).
+
+## Docker-in-Docker
+
+Real `dockerd`, listening on `DOCKER_HOST=unix:///run/agent/docker.sock`, data in
+`$DIND_DATA_ROOT` (`/data/docker`, must be a volume). Mode by `DIND_MODE`:
+
+| Mode | Container needs |
+|---|---|
+| `auto` | picks the first that works: existing daemon → `external`, root + privileged → `rootful`, else `rootless` if its prerequisites are met (missing ones are logged), else `off` |
+| `rootless` | seccomp + AppArmor unconfined, unmasked `/proc`, `/dev/net/tun`, no `no_new_privs` (setuid `newuidmap`). In a user-namespaced pod start as root (uid 0 of the namespace) so the entrypoint can fit the subordinate ids |
+| `rootful` | `--privileged`, started as root (`--user 0`); the agent uses the daemon through the `docker` group |
+| `external` | only the CLI, against `DOCKER_HOST` |
+| `off` | no Docker |
+
+Publish container ports on loopback (`-p 127.0.0.1:8080:8080`) and test against `127.0.0.1`; in
+rootless mode container IPs are not reachable from the agent.
+
+```sh
+# rootless, as on Kubernetes (docs/kubernetes.md)
+docker run --rm -it \
+  --security-opt seccomp=unconfined --security-opt apparmor=unconfined --security-opt systempaths=unconfined \
+  --device /dev/net/tun -v agent-home:/home/agent -v agent-data:/data \
+  -e DIND_MODE=rootless ghcr.io/niki-on-github/multica-agent-runtime:cpu bash -l
+
+# rootful
+docker run --rm -it --privileged --user 0 -v agent-home:/home/agent -v agent-data:/data \
+  -e DIND_MODE=rootful ghcr.io/niki-on-github/multica-agent-runtime:cpu bash -l
+```
+
+## GPU (cuda image)
+
+Give the container the GPU (`runtimeClassName: nvidia` on Kubernetes, `--gpus all` with Docker).
+At start `nvidia-ctk cdi generate` writes a CDI spec of exactly what the container sees, so nested
+containers get the GPU with `docker run --device nvidia.com/gpu=all ...` (`--gpus all` works too).
+Rootless mode runs the NVIDIA hook with `no-cgroups`. `NVIDIA_CDI_ARGS` passes extra flags (e.g.
+`--library-search-path` for unusual driver locations). `doctor --gpu` runs `nvidia-smi` in a nested
+CUDA container.
+
+## Browser testing
+
+Chrome for Testing sits at the default Chrome path, so Playwright (`channel: 'chrome'`),
+Playwright MCP and chrome-devtools-mcp use it without configuration. The wrapper adds
+`--no-sandbox` when the user-namespace sandbox is unavailable and `--disable-dev-shm-usage` with a
+small `/dev/shm` (`CHROME_EXTRA_ARGS` for more). Give `/dev/shm` ≥ 1 GiB for heavy pages.
+The agents' guide is in the image: `/usr/share/doc/multica-agent-runtime/GUIDE.md`.
+
+## Caches
+
+Nothing is baked in; the standard variables are read natively:
+
+| Cache | Variables |
+|---|---|
+| Nix | `NIX_CONFIG` (`extra-substituters = ...`, `extra-trusted-public-keys = ...`) |
+| pip / uv | `PIP_INDEX_URL`, `UV_DEFAULT_INDEX` |
+| Hugging Face | `HF_ENDPOINT` (+ `HF_HUB_DISABLE_XET=1` for proxies like olah) |
+| npm | `NPM_CONFIG_REGISTRY` |
+| Docker registry | `DOCKER_REGISTRY_MIRRORS` (comma separated) |
+| CA bundle | `SSL_CERT_FILE`: also set as `NODE_EXTRA_CA_CERTS`, `GIT_SSL_CAINFO`, `REQUESTS_CA_BUNDLE`, `CURL_CA_BUNDLE`, `PIP_CERT`, `NIX_SSL_CERT_FILE` unless those are set |
+
+## Environment
+
+| Variable | Default | |
+|---|---|---|
+| `MULTICA_TOKEN` | – | required for `daemon` |
+| `MULTICA_SERVER_URL`, `MULTICA_APP_URL` | – | self-hosted Multica |
+| `MULTICA_DAEMON_ID`, `MULTICA_DAEMON_DEVICE_NAME`, `MULTICA_AGENT_RUNTIME_NAME`, `MULTICA_DAEMON_MAX_CONCURRENT_TASKS` | – | daemon (upstream names) |
+| `MULTICA_WORKSPACES_ROOT`, `MULTICA_AGENT_TEMP_BASE` | `/data/workspaces`, `/data/tmp` | |
+| `GH_TOKEN`, `GITEA_URL`, `GITEA_TOKEN`, `GITEA_USER` | – | git hosts |
+| `GIT_AUTHOR_NAME`, `GIT_AUTHOR_EMAIL` | – | commit identity |
+| `CLAUDE_CODE_OAUTH_TOKEN`, `ANTHROPIC_API_KEY`, `ANTHROPIC_BASE_URL`, `OPENAI_API_KEY`, `OPENCODE_CONFIG` | – | agent auth |
+| `DIND_MODE` | `auto` (`daemon`) | Docker mode |
+| `DIND_DATA_ROOT`, `DIND_START_TIMEOUT`, `DIND_STORAGE_DRIVER`, `DIND_IPTABLES=legacy`, `DIND_DAEMON_JSON` | `/data/docker`, `60` | Docker tuning (`DIND_DAEMON_JSON` is merged into daemon.json) |
+| `DOCKERD_ROOTLESS_ROOTLESSKIT_NET` | `slirp4netns` | rootless network driver (`pasta` also installed) |
+| `NVIDIA_CDI_ARGS` | – | extra `nvidia-ctk cdi generate` flags |
+| `TTYD_PORT`, `TTYD_ARGS` | `7681` | web shell |
+| `CHROME_EXTRA_ARGS` | – | extra Chrome flags |
+
+Values equal to `CHANGEME` count as unset.
+
+## Kubernetes
+
+See [docs/kubernetes.md](docs/kubernetes.md): pod security settings per Docker mode, volumes, an
+example Deployment with the daemon and the web shell.
+
+## Development
+
+- `Dockerfile`: one file, `--build-arg VARIANT=cpu|cuda`; pinned versions in `ARG`s with
+  `# renovate:` comments
+- `rootfs/`: entrypoint, libraries, doctor, skeleton, Nix config, agent guide
+- `tests/smoke.sh`: run by CI as the image command in three setups (plain, rootful, rootless); with
+  Docker it builds a web image, runs it, and tests it with Playwright in Chrome (screenshots are
+  uploaded as artifacts); the cuda job also builds a CUDA image
+- `.github/workflows/build.yml`: matrix `cpu`/`cuda`, build → smoke tests → push (main only)
+- Renovate (`renovate.json`) updates everything (base images, Multica, agent CLIs, Chrome, Docker,
+  NVIDIA toolkit, release binaries, actions) and commits straight to `main`; CI publishes only
+  after the smoke tests pass
+
+Local build: `docker build --build-arg VARIANT=cpu -t agent-runtime:test .`
+
+## License
+
+MIT

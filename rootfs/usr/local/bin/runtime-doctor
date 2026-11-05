@@ -1,0 +1,118 @@
+#!/usr/bin/env bash
+# runtime-doctor: what works in this container. No tokens are printed.
+#   --gpu   also run a CUDA container on the GPU (pulls nvidia/cuda base)
+#   --json  versions only, as JSON
+# Exit status 0, unless --strict and a check failed.
+set -uo pipefail
+LIB=/usr/local/lib/multica-agent-runtime
+# shellcheck source=SCRIPTDIR/../lib/multica-agent-runtime/common.sh
+. "$LIB/common.sh"
+if [ -r "${XDG_RUNTIME_DIR:-/run/agent}/agent.env" ]; then
+  # shellcheck disable=SC1091
+  . "${XDG_RUNTIME_DIR:-/run/agent}/agent.env"
+fi
+
+gpu_test=0 strict=0
+for a in "$@"; do
+  case "$a" in
+    --gpu) gpu_test=1 ;;
+    --strict) strict=1 ;;
+    --json) exec cat /etc/multica-agent-runtime/versions.json ;;
+    -h | --help) sed -n '2,6p' "$0"; exit 0 ;;
+  esac
+done
+
+failed=0
+section() { printf '\n== %s\n' "$*"; }
+ok() { printf '  [ok]   %s\n' "$*"; }
+no() { printf '  [--]   %s\n' "$*"; }
+bad() { printf '  [FAIL] %s\n' "$*"; failed=1; }
+hint() { printf '         %s\n' "$*"; }
+
+section "image"
+jq -r '"  variant \(.variant), \(.multica), Claude Code \(."claude-code"), OpenCode \(.opencode), Codex \(.codex)"' \
+  /etc/multica-agent-runtime/versions.json 2>/dev/null || bad "versions.json missing"
+printf '  uid %s, HOME %s\n' "$(id -u)" "$HOME"
+
+section "agent CLIs (one Multica runtime each)"
+for c in claude opencode codex; do
+  if command -v "$c" >/dev/null; then ok "$c: $(command -v "$c")"; else no "$c not installed"; fi
+done
+
+section "logins"
+if [ -s "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/.credentials.json" ]; then ok "Claude Code: subscription login ($CLAUDE_CONFIG_DIR/.credentials.json)"
+elif is_set CLAUDE_CODE_OAUTH_TOKEN; then ok "Claude Code: CLAUDE_CODE_OAUTH_TOKEN"
+elif is_set ANTHROPIC_API_KEY; then ok "Claude Code: ANTHROPIC_API_KEY"
+elif is_set ANTHROPIC_BASE_URL; then ok "Claude Code: ANTHROPIC_BASE_URL ($ANTHROPIC_BASE_URL)"
+else no "Claude Code: not logged in"; hint "web shell: claude, then /login (paste the code back)"; fi
+if [ -s "$HOME/.local/share/opencode/auth.json" ]; then ok "OpenCode: $(jq -r 'keys | join(", ")' "$HOME/.local/share/opencode/auth.json" 2>/dev/null) (auth.json)"
+elif [ -n "${OPENCODE_CONFIG:-}" ]; then ok "OpenCode: config $OPENCODE_CONFIG"
+else no "OpenCode: no provider login or config"; hint "opencode auth login, or OPENCODE_CONFIG with a provider"; fi
+if [ -s "$HOME/.codex/auth.json" ]; then ok "Codex: login (~/.codex/auth.json)"
+elif is_set OPENAI_API_KEY; then ok "Codex: OPENAI_API_KEY"
+else no "Codex: not logged in"; hint "codex login --device-auth"; fi
+if is_set MULTICA_TOKEN; then ok "Multica: MULTICA_TOKEN, server ${MULTICA_SERVER_URL:-default}"
+else no "Multica: MULTICA_TOKEN not set (daemon waits)"; fi
+if is_set GH_TOKEN; then ok "GitHub: GH_TOKEN"; elif gh auth status >/dev/null 2>&1; then ok "GitHub: gh login"; else no "GitHub: no token"; fi
+if tea login list 2>/dev/null | grep -q gitea; then ok "Gitea: tea login ${GITEA_URL:-}"; else no "Gitea: no tea login (GITEA_URL + GITEA_TOKEN)"; fi
+hint "MCP OAuth with a localhost callback: copy the failed redirect URL from the browser, curl '<url>' here"
+
+section "Docker"
+printf '  mode %s (DIND_MODE), DOCKER_HOST %s\n' "${DIND_ACTIVE_MODE:-unknown}" "${DOCKER_HOST:-}"
+if docker info >/dev/null 2>&1; then
+  ok "$(docker info --format 'server {{.ServerVersion}}, storage {{.Driver}}, cgroup {{.CgroupVersion}}, {{.SecurityOptions}}' 2>/dev/null)"
+  ok "$(docker compose version 2>/dev/null), $(docker buildx version 2>/dev/null | cut -d' ' -f1-2)"
+else
+  no "no Docker daemon answers"
+  if [ -s "${XDG_RUNTIME_DIR}/dockerd.log" ]; then hint "log: ${XDG_RUNTIME_DIR}/dockerd.log"; fi
+fi
+printf '  seccomp %s, AppArmor %s, no_new_privs %s, userns %s (%s ids), /proc masked %s, /dev/net/tun %s\n' \
+  "$(seccomp_mode)" "$(apparmor_profile)" "$(no_new_privs)" \
+  "$(in_userns && echo yes || echo no)" "$(userns_size)" \
+  "$(proc_masked && echo yes || echo no)" "$([ -c /dev/net/tun ] && echo yes || echo no)"
+
+section "GPU"
+if command -v nvidia-smi >/dev/null && nvidia-smi -L >/dev/null 2>&1; then
+  nvidia-smi -L | sed 's/^/  [ok]   /'
+  spec=
+  for f in /etc/cdi/nvidia.yaml "$XDG_RUNTIME_DIR/cdi/nvidia.yaml"; do [ -s "$f" ] && spec=$f; done
+  if [ -n "$spec" ]; then ok "CDI spec $spec"; else bad "no CDI spec (see $XDG_RUNTIME_DIR/nvidia-cdi.log)"; fi
+  if (( gpu_test )); then
+    img="docker.io/nvidia/cuda:${CUDA_VERSION:-13.4.3}-base-ubuntu24.04"
+    if out=$(docker run --rm --device nvidia.com/gpu=all "$img" nvidia-smi -L 2>&1); then ok "nested container sees: $out"
+    else bad "nested GPU container failed:"; printf '%s\n' "$out" | tail -n 5 | sed 's/^/         /'; fi
+  else
+    hint "doctor --gpu runs nvidia-smi in a nested CUDA container"
+  fi
+elif command -v nvidia-ctk >/dev/null; then
+  no "cuda image, but no GPU visible (runtimeClassName: nvidia, NVIDIA_VISIBLE_DEVICES)"
+else
+  no "cpu image"
+fi
+
+section "browser"
+if out=$(/opt/google/chrome/chrome --version 2>&1); then ok "$out (/opt/google/chrome/chrome)"; else bad "chrome: $out"; fi
+ok "playwright $(playwright --version 2>/dev/null | awk '{print $2}'), MCPs: playwright-mcp, chrome-devtools-mcp"
+shm_kb=$(df -Pk /dev/shm 2>/dev/null | awk 'NR==2 {print $2}')
+printf '  /dev/shm %s MiB%s\n' "$(( ${shm_kb:-0} / 1024 ))" "$([ "${shm_kb:-0}" -lt 1048576 ] && echo ' (small: Chrome uses --disable-dev-shm-usage)')"
+
+section "caches"
+check_url() {
+  local name=$1 url=$2
+  if curl -fsS -o /dev/null -m 5 "$url" 2>/dev/null; then ok "$name $url"; else bad "$name $url not reachable"; fi
+}
+subs=$(printf '%s\n' "${NIX_CONFIG:-}" | sed -nE 's/^[[:space:]]*extra-substituters[[:space:]]*=[[:space:]]*//p' | tr ' ' '\n' | sed '/^$/d')
+if [ -n "$subs" ]; then
+  while IFS= read -r s; do check_url "Nix" "${s%%\?*}/nix-cache-info"; done <<<"$subs"
+else no "Nix: cache.nixos.org only (NIX_CONFIG extra-substituters)"; fi
+if [ -n "${PIP_INDEX_URL:-}" ]; then check_url "pip/uv" "$PIP_INDEX_URL"; else no "pip/uv: PyPI (PIP_INDEX_URL, UV_DEFAULT_INDEX)"; fi
+if [ -n "${HF_ENDPOINT:-}" ]; then check_url "Hugging Face" "$HF_ENDPOINT"; else no "Hugging Face: huggingface.co (HF_ENDPOINT)"; fi
+if [ -n "${NPM_CONFIG_REGISTRY:-}" ]; then check_url "npm" "$NPM_CONFIG_REGISTRY"; else no "npm: registry.npmjs.org (NPM_CONFIG_REGISTRY)"; fi
+printf '  CA bundle %s\n' "${SSL_CERT_FILE:-system default}"
+
+section "storage"
+df -h "$HOME" /data 2>/dev/null | sed 's/^/  /'
+
+echo
+if (( strict && failed )); then exit 1; fi
+exit 0
