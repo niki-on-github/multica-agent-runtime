@@ -56,3 +56,8 @@ has_bound_cap() {
 proc_masked() {
   awk '{print $5}' /proc/self/mountinfo | grep -qE '^/proc/(kcore|keys|timer_list|sched_debug|scsi|acpi|latency_stats)$'
 }
+# mounts on top of /proc (masks, the NVIDIA hook's /proc/driver/nvidia/params, ...); any of them makes the
+# kernel refuse a fresh proc mount, so nested containers cannot start (runc: mounting "proc": EPERM)
+proc_overmounts() {
+  awk '$5 ~ "^/proc/" {print $5}' /proc/self/mountinfo
+}

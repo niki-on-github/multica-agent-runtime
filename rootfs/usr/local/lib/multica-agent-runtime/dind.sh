@@ -29,6 +29,8 @@ dind_rootless_blockers() {
   esac
   if proc_masked; then
     echo "/proc is masked (pod: securityContext.procMount Unmasked, requires hostUsers: false)"
+  elif [ -n "$(proc_overmounts)" ]; then
+    echo "mounts on top of /proc ($(proc_overmounts | tr '\n' ' ')): nested containers cannot mount /proc (start as root so the entrypoint can remove them)"
   fi
   if [ ! -c /dev/net/tun ]; then
     echo "/dev/net/tun missing (rootlesskit's network driver needs it: device plugin or hostPath CharDevice)"

@@ -129,7 +129,11 @@ docker run --rm -it --privileged --user 0 -v agent-home:/home/agent -v agent-dat
 Give the container the GPU (`runtimeClassName: nvidia` on Kubernetes, `--gpus all` with Docker).
 At start `nvidia-ctk cdi generate` writes a CDI spec of exactly what the container sees, so nested
 containers get the GPU with `docker run --device nvidia.com/gpu=all ...` (`--gpus all` works too).
-Rootless mode runs the NVIDIA hook with `no-cgroups`. `NVIDIA_CDI_ARGS` passes extra flags (e.g.
+Rootless mode runs the NVIDIA hook with `no-cgroups`.
+The NVIDIA hook of the outer runtime mounts a file over `/proc/driver/nvidia/params`; any mount on top of
+`/proc` makes the kernel refuse new proc mounts, so every nested container would fail (`runc ... error
+mounting "proc" ... operation not permitted`, also with `--privileged`). The entrypoint removes that
+mount when the container starts as root (also uid 0 of a user-namespaced pod). `NVIDIA_CDI_ARGS` passes extra flags (e.g.
 `--library-search-path` for unusual driver locations). `doctor --gpu` runs `nvidia-smi` in a nested
 CUDA container.
 

@@ -34,7 +34,9 @@ args:
           - path: /dev/net/tun
 ```
 
-GPU: `runtimeClassName: nvidia` (and `NVIDIA_VISIBLE_DEVICES` / a GPU resource, depending on how
+GPU: start the container as root (`runAsUser: 0`, as for rootless Docker): the NVIDIA hook mounts a file
+over `/proc/driver/nvidia/params`, which blocks `/proc` for every nested container until the entrypoint
+removes it. GPU: `runtimeClassName: nvidia` (and `NVIDIA_VISIBLE_DEVICES` / a GPU resource, depending on how
 the cluster exposes GPUs) with the `cuda` image. `doctor --gpu` verifies nested GPU containers.
 
 ## Volumes

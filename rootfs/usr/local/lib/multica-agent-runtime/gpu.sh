@@ -26,3 +26,24 @@ gpu_setup() {
     warn "GPU: nvidia-ctk cdi generate failed, see $XDG_RUNTIME_DIR/nvidia-cdi.log (NVIDIA_CDI_ARGS)"
   fi
 }
+
+# The NVIDIA container hook (runtimeClassName nvidia, legacy mode) mounts a tmpfs file over
+# /proc/driver/nvidia/params (sets ModifyDeviceFiles: 0). Any mount on top of /proc makes the kernel
+# refuse new proc mounts, so every nested container fails (runc: error mounting "proc": operation not
+# permitted, also with --privileged). Root of the container (also inside a user-namespaced pod) can
+# remove it; the device nodes are already there, so the driver has nothing to create.
+gpu_release_proc() {
+  [ "$(id -u)" = 0 ] || return 0
+  local m
+  while read -r m; do
+    case "$m" in
+      /proc/driver/nvidia/*)
+        if umount "$m" 2>/dev/null; then
+          log "GPU: removed the NVIDIA hook's mount on $m (nested containers need a clean /proc)"
+        else
+          warn "GPU: cannot unmount $m: nested containers will fail to mount /proc"
+        fi
+        ;;
+    esac
+  done < <(proc_overmounts)
+}

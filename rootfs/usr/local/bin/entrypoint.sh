@@ -43,6 +43,7 @@ if [ "$(id -u)" = 0 ]; then
       chown 1000:1000 "$d"
     fi
   done
+  gpu_release_proc
   gpu_setup
   dind_root_phase
   export DIND_RESOLVED=1
