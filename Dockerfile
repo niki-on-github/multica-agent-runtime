@@ -3,7 +3,7 @@
 #
 # Multica agent runtime: the Multica daemon with Claude Code, OpenCode and Codex, Docker-in-Docker,
 # Nix, Chrome for Testing + Playwright, gh and tea. VARIANT picks the base:
-#   cpu   Ubuntu 24.04
+#   cpu   Ubuntu 26.04
 #   cuda  nvidia/cuda runtime (same Ubuntu) + nvidia-container-toolkit for GPU containers inside
 # Layers go from rarely to often changing: apt, Docker, Chrome, Nix/Node, release binaries, browser
 # npm packages, agent CLIs (almost daily), Multica.
@@ -18,7 +18,8 @@ FROM docker.io/library/node:26.13.0-bookworm-slim@sha256:add5c17c14752c54d2f3d51
 FROM ghcr.io/astral-sh/uv:0.13.7@sha256:96f40d3904aad8d0bd010539001d36c8e2188b981e1334471a90c4a1d93bb490 AS uv
 
 FROM docker.io/library/ubuntu:26.04@sha256:6a06111c3b0a8600feadb270aec771dc239bf407b25625f93f44ab00e11f4d3c AS base-cpu
-FROM docker.io/nvidia/cuda:13.4.3-runtime-ubuntu24.04@sha256:f58bd7a0701fae3a2160f22e1d451b77b349bd9ef83dad76f5529aa413c149a8 AS base-cuda
+# keep both on the same Ubuntu release (the Docker apt repo follows the base's codename)
+FROM docker.io/nvidia/cuda:13.4.3-runtime-ubuntu26.04@sha256:83b873636b7ad03b418984f38f6b8a09e6f3c3a105d5cdab8088e998e8ed93f1 AS base-cuda
 
 # hadolint ignore=DL3006
 FROM base-${VARIANT}
@@ -48,11 +49,12 @@ RUN apt-get update; \
 # --- Docker engine (rootful + rootless) -------------------------------------------------------------
 # renovate: datasource=github-releases depName=moby/moby extractVersion=^docker-v(?<version>.+)$
 ARG DOCKER_VERSION=29.9.3
-RUN curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc; \
-  echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu noble stable" \
+RUN . /etc/os-release; \
+  curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc; \
+  echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu ${VERSION_CODENAME} stable" \
     > /etc/apt/sources.list.d/docker.list; \
   apt-get update; \
-  v="5:${DOCKER_VERSION}-1~ubuntu.24.04~noble"; \
+  v="5:${DOCKER_VERSION}-1~ubuntu.${VERSION_ID}~${VERSION_CODENAME}"; \
   apt-get install -y --no-install-recommends \
     "docker-ce=$v" "docker-ce-cli=$v" "docker-ce-rootless-extras=$v" \
     containerd.io docker-buildx-plugin docker-compose-plugin; \
@@ -90,7 +92,7 @@ RUN curl -fsSL -o /tmp/chrome.zip \
   mv /opt/chrome-linux64 /opt/chrome-for-testing; \
   mapfile -t wanted < <(sed -E 's/ *\|.*//; s/ *\(.*\)//' /opt/chrome-for-testing/deb.deps | sort -u); \
   apt-get update; \
-  # deb.deps uses pre-t64 names; on Ubuntu 24.04 several are virtual (libasound2 -> libasound2t64)
+  # deb.deps uses pre-t64 names; since Ubuntu 24.04 several are virtual (libasound2 -> libasound2t64)
   deps=(); \
   for d in "${wanted[@]}"; do \
     if [ "$(apt-cache policy "$d" | sed -n 's/ *Candidate: //p')" != "(none)" ]; then deps+=("$d"); continue; fi; \

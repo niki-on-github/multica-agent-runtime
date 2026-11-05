@@ -41,12 +41,12 @@ standard tools and they are used automatically.
 `nvidia-smi` shows the GPU(s) this container got. Nested containers get them through CDI:
 
 ```sh
-docker run --rm --device nvidia.com/gpu=all nvidia/cuda:13.4.3-base-ubuntu24.04 nvidia-smi
+docker run --rm --device nvidia.com/gpu=all nvidia/cuda:13.4.3-base-ubuntu26.04 nvidia-smi
 ```
 
 - `--gpus all` works too (nvidia runtime); prefer `--device nvidia.com/gpu=all`.
 - compose: `devices: ["nvidia.com/gpu=all"]` on the service.
-- Build CUDA code inside images (`FROM nvidia/cuda:<ver>-devel-ubuntu24.04`); this image has the CUDA
+- Build CUDA code inside images (`FROM nvidia/cuda:<ver>-devel-ubuntu26.04`); this image has the CUDA
   runtime, not the compiler. No GPU is needed to build.
 - The GPU is shared with other workloads: keep VRAM use modest, stop GPU containers when done.
 - `doctor --gpu` checks the whole chain.

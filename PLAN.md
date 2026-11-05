@@ -12,8 +12,8 @@ One Dockerfile, `ARG BASE_IMAGE` / `ARG VARIANT`, two images in a CI matrix:
 
 | Variant | Base | Use |
 |---|---|---|
-| `cpu` | `ubuntu:24.04@sha256:…` | default runner |
-| `cuda` | `nvidia/cuda:<ver>-runtime-ubuntu24.04@sha256:…` | GPU passthrough (`runtimeClassName: nvidia`) |
+| `cpu` | `ubuntu:26.04@sha256:…` | default runner |
+| `cuda` | `nvidia/cuda:<ver>-runtime-ubuntu26.04@sha256:…` | GPU passthrough (`runtimeClassName: nvidia`) |
 
 Same distro for both, so one package list. `runtime`, not `devel`: agents that need nvcc get it via Nix.
 
@@ -265,7 +265,7 @@ Run as uid 1000 with an empty tmpfs `$HOME`:
   - `rootful`: `--privileged`
   - `rootless`: `seccomp=unconfined`, `apparmor=unconfined`, `systempaths=unconfined`
     (Ubuntu runner: `kernel.apparmor_restrict_unprivileged_userns=0`)
-- end to end, both DinD modes: `docker build` a tiny image (`FROM nvidia/cuda:<ver>-base-ubuntu24.04` on cuda,
+- end to end, both DinD modes: `docker build` a tiny image (`FROM nvidia/cuda:<ver>-base-ubuntu26.04` on cuda,
   `alpine` on cpu) serving a test page → `docker run -d -p 127.0.0.1:18080:8080` → `npx playwright test`
   (channel chrome) asserts the page and takes a screenshot (uploaded as a CI artifact)
 - `cuda`: `nvidia-ctk --version`, CUDA libs present, CDI generation skipped cleanly without a GPU (no GPU on the

@@ -6,17 +6,34 @@ rootful), a CUDA variant with GPU access for nested containers, Chrome for Testi
 browser tests, Nix with configurable caches, `gh` and `tea`, and a web terminal for the CLI logins.
 
 ```
-ghcr.io/niki-on-github/multica-agent-runtime:<multica-tag>-<variant>[-<sha7>]
+ghcr.io/niki-on-github/multica-agent-runtime:<multica-version>-<variant>[-<sha7>]
+                                             │                 │          └ commit of this repo (immutable)
+                                             │                 └ cpu | cuda
+                                             └ Multica version of the bundled `multica` CLI/daemon, e.g. v0.8.0
 ```
+
+**The version in the tag is the Multica agent (daemon) version**, not a version of this repo: the
+`multica` binary is copied from `ghcr.io/multica-ai/multica-backend:<multica-version>`. Pick the tag
+that matches your Multica server. Everything else in the image (Claude Code, OpenCode, Codex, Chrome,
+Docker, ...) is updated by Renovate independently and does not change the version part; the exact
+versions of an image are in `/etc/multica-agent-runtime/versions.json` (`doctor` prints them).
+
+| Tag | Example | Moves? |
+|---|---|---|
+| `<multica-version>-<variant>-<sha7>` | `v0.8.0-cuda-9b973bc` | no: one build. Pin this (plus `@sha256:` digest) in deployments |
+| `<multica-version>-<variant>` | `v0.8.0-cuda` | yes: newest build for this Multica version |
+| `<variant>` | `cuda` | yes: newest build for the newest Multica version |
 
 | Variant | Base | Use |
 |---|---|---|
-| `cpu` | Ubuntu 24.04 | default |
-| `cuda` | `nvidia/cuda:<ver>-runtime-ubuntu24.04` + nvidia-container-toolkit | GPU runner: CUDA in the agent container and in nested containers |
+| `cpu` | `ubuntu:26.04` | default |
+| `cuda` | `nvidia/cuda:<cuda-version>-runtime-ubuntu26.04` + nvidia-container-toolkit | GPU runner: CUDA in the agent container and in nested containers |
 
-Tags: `:<multica-tag>-<variant>` (moving), `:<multica-tag>-<variant>-<sha7>` (immutable, pin this by
-digest), `:<variant>` (latest). `<multica-tag>` is the Multica release the CLI comes from; keep it
-equal to your Multica server. Images are rebuilt on every dependency update (Renovate) and weekly.
+Both variants run **Ubuntu 26.04 LTS** (switched from 24.04). Keep the two bases on the same release:
+the Docker CE apt repository and package version are derived from the base's `/etc/os-release`
+(`VERSION_CODENAME`/`VERSION_ID`), and Chrome's `deb.deps` names are mapped to the release's packages
+at build time (e.g. `libasound2` → `libasound2t64`). Images are rebuilt on every dependency update
+(Renovate) and weekly (Ubuntu security updates).
 
 ## What is inside
 
@@ -27,7 +44,7 @@ equal to your Multica server. Images are rebuilt on every dependency update (Ren
 | Browser | Chrome for Testing at `/opt/google/chrome/chrome`, `@playwright/test`, Playwright MCP, chrome-devtools-mcp, xvfb |
 | Containers | Docker engine (rootless extras, buildx, compose), slirp4netns, fuse-overlayfs; cuda: nvidia-container-toolkit, nvtop |
 | Git | git, git-lfs, gh, tea, openssh-client |
-| Dev | Node 24, npm, pnpm, Python 3 + venv + pip, uv/uvx, build-essential, Nix (single-user, flakes) |
+| Dev | Node 26, npm, pnpm, Python 3.14 + venv + pip, uv/uvx, build-essential, Nix (single-user, flakes) |
 | Shell | bash, vim, tmux, ttyd, jq, yq, ripgrep, fd, rsync, sqlite3, curl, wget, bubblewrap, socat, network/debug tools |
 
 Everything else comes through Nix: `nix shell nixpkgs#go -c go version`.
@@ -168,8 +185,11 @@ example Deployment with the daemon and the web shell.
   uploaded as artifacts); the cuda job also builds a CUDA image
 - `.github/workflows/build.yml`: matrix `cpu`/`cuda`, build → smoke tests → push (main only)
 - Renovate (`renovate.json`) updates everything (base images, Multica, agent CLIs, Chrome, Docker,
-  NVIDIA toolkit, release binaries, actions) and commits straight to `main`; CI publishes only
-  after the smoke tests pass
+  NVIDIA toolkit, release binaries, actions, majors included) in **one PR** ("all dependencies"),
+  automerged immediately (no minimum release age, no PR checks to wait for). The merge to `main`
+  triggers CI, which publishes only after the smoke tests pass, so a broken update never replaces
+  the published tags
+- Pushes that only touch `*.md`, `docs/` or `renovate.json` do not build (`paths-ignore`)
 
 Local build: `docker build --build-arg VARIANT=cpu -t agent-runtime:test .`
 

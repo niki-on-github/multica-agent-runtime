@@ -14,12 +14,25 @@ classes and secrets; the GitOps version for the `nixos-ai` cluster lives in that
 | `capabilities.add` | `[SYS_ADMIN]`: in the bounding set for `newuidmap` (the agent has no effective caps; with `hostUsers: false` it only applies inside the pod's user namespace) | (implied) |
 | `seccompProfile` / `appArmorProfile` | `Unconfined` | (implied) |
 | `procMount` | `Unmasked` (requires `hostUsers: false`) | (implied) |
-| `/dev/net/tun` | required (rootlesskit network): a device plugin, or a `hostPath` `CharDevice` volume | (implied) |
+| `/dev/net/tun` | required (rootlesskit network), from a device plugin (e.g. [generic-device-plugin](https://github.com/squat/generic-device-plugin): `resources.limits: {squat.ai/tun: 1}`). A `hostPath` volume does **not** work with `hostUsers: false`: containerd idmap-mounts volumes and devtmpfs refuses (`failed to set MOUNT_ATTR_IDMAP on /dev/net/tun`) | (implied) |
 | env | `DIND_MODE=rootless` (or `auto`) | `DIND_MODE=rootful` |
 
 Inside a user-namespaced pod only 65536 ids exist, so the agent gets subordinate ids `1001:64535`:
 nested images with files owned by uid ≥ 64535 (e.g. `nobody`, 65534) can fail to unpack. idmapped
 volume mounts are needed for PVCs (OpenZFS ≥ 2.2, ext4/xfs: yes).
+
+generic-device-plugin args for `/dev/net/tun` (shared, every `open()` gets its own interface):
+
+```yaml
+args:
+  - --device
+  - |
+    name: tun
+    groups:
+      - count: 100
+        paths:
+          - path: /dev/net/tun
+```
 
 GPU: `runtimeClassName: nvidia` (and `NVIDIA_VISIBLE_DEVICES` / a GPU resource, depending on how
 the cluster exposes GPUs) with the `cuda` image. `doctor --gpu` verifies nested GPU containers.
@@ -96,14 +109,13 @@ spec:
             appArmorProfile: {type: Unconfined}
           resources:
             requests: {cpu: 500m, memory: 2Gi}
-            limits: {cpu: "8", memory: 24Gi}
+            limits: {cpu: "8", memory: 24Gi, squat.ai/tun: 1}   # /dev/net/tun from the device plugin
           volumeMounts: &mounts
             - {name: home, mountPath: /home/agent}
             - {name: data, mountPath: /data}
             - {name: run, mountPath: /run/agent}
             - {name: shm, mountPath: /dev/shm}
             - {name: tmp, mountPath: /tmp}
-            - {name: tun, mountPath: /dev/net/tun}
         # web terminal for the TUI logins; uses the app container's Docker, starts none itself
         - name: shell
           image: ghcr.io/niki-on-github/multica-agent-runtime:v0.8.0-cpu-<sha7>@sha256:<digest>
@@ -126,7 +138,6 @@ spec:
         - {name: run, emptyDir: {}}
         - {name: shm, emptyDir: {medium: Memory, sizeLimit: 2Gi}}
         - {name: tmp, emptyDir: {}}
-        - {name: tun, hostPath: {path: /dev/net/tun, type: CharDevice}}
 ```
 
 Expose the shell (port 7681, WebSocket) only behind an authenticating proxy (OIDC); it gives access
@@ -138,4 +149,4 @@ their models at start.
 ## Rootful variant
 
 Replace the `app` security context with `privileged: true`, `runAsUser: 0`, drop `hostUsers: false`,
-`procMount` and the `tun` volume, and set `DIND_MODE=rootful`.
+`procMount` and the `squat.ai/tun` resource, and set `DIND_MODE=rootful`.

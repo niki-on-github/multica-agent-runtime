@@ -78,7 +78,7 @@ if command -v nvidia-smi >/dev/null && nvidia-smi -L >/dev/null 2>&1; then
   for f in /etc/cdi/nvidia.yaml "$XDG_RUNTIME_DIR/cdi/nvidia.yaml"; do [ -s "$f" ] && spec=$f; done
   if [ -n "$spec" ]; then ok "CDI spec $spec"; else bad "no CDI spec (see $XDG_RUNTIME_DIR/nvidia-cdi.log)"; fi
   if (( gpu_test )); then
-    img="docker.io/nvidia/cuda:${CUDA_VERSION:-13.4.3}-base-ubuntu24.04"
+    img="docker.io/nvidia/cuda:${CUDA_VERSION:-13.4.3}-base-ubuntu26.04"
     if out=$(docker run --rm --device nvidia.com/gpu=all "$img" nvidia-smi -L 2>&1); then ok "nested container sees: $out"
     else bad "nested GPU container failed:"; printf '%s\n' "$out" | tail -n 5 | sed 's/^/         /'; fi
   else

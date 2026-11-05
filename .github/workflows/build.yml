@@ -2,12 +2,12 @@ name: Build and publish images
 
 # Builds ghcr.io/<owner>/<repo> in two variants (cpu, cuda) from one Dockerfile. Tags follow the
 # Multica backend tag the Dockerfile copies the CLI from:
-#   :<multica-tag>-<variant>          moving, rebuilt on every change
-#   :<multica-tag>-<variant>-<sha7>   immutable, one per commit (pin this, by digest)
-#   :<variant>                        latest
-# Renovate commits its updates straight to main (automerge, branch type). Every push builds, runs
-# the smoke tests (plain, rootful Docker, rootless Docker) and only then pushes, so a broken update
-# never replaces the published tags. The weekly schedule picks up Ubuntu security updates.
+#   :<multica-version>-<variant>          moving, rebuilt on every change
+#   :<multica-version>-<variant>-<sha7>   immutable, one per commit (pin this, by digest)
+#   :<variant>                            latest
+# Renovate batches all updates into one PR and automerges it. Every push to main builds, runs the
+# smoke tests (plain, rootful Docker, rootless Docker) and only then pushes, so a broken update
+# never replaces the published tags. Docs-only pushes (paths-ignore) do not build. The weekly schedule picks up Ubuntu security updates.
 on:
   push:
     branches: [main]
