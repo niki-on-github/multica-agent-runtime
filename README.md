@@ -133,7 +133,11 @@ Rootless mode runs the NVIDIA hook with `no-cgroups`.
 The NVIDIA hook of the outer runtime mounts a file over `/proc/driver/nvidia/params`; any mount on top of
 `/proc` makes the kernel refuse new proc mounts, so every nested container would fail (`runc ... error
 mounting "proc" ... operation not permitted`, also with `--privileged`). The entrypoint removes that
-mount when the container starts as root (also uid 0 of a user-namespaced pod). `NVIDIA_CDI_ARGS` passes extra flags (e.g.
+mount when the container starts as root (also uid 0 of a user-namespaced pod).
+In a user-namespaced pod the GPU device nodes belong to the overflow id 65534, which `nvidia-ctk`
+copies into the spec (`gid`, `additionalGids`); rootless Docker cannot map it (`setgroups: invalid
+argument`), so the entrypoint drops those ids from the spec. The NVIDIA runtime is set to `mode = "cdi"`:
+`--runtime=nvidia -e NVIDIA_VISIBLE_DEVICES=all` and `--device nvidia.com/gpu=all` use the same spec. `NVIDIA_CDI_ARGS` passes extra flags (e.g.
 `--library-search-path` for unusual driver locations). `doctor --gpu` runs `nvidia-smi` in a nested
 CUDA container.
 

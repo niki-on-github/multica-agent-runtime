@@ -21,9 +21,39 @@ gpu_setup() {
   # shellcheck disable=SC2086
   if nvidia-ctk cdi generate --output="$dir/nvidia.yaml" ${NVIDIA_CDI_ARGS:-} \
     >"$XDG_RUNTIME_DIR/nvidia-cdi.log" 2>&1; then
+    gpu_cdi_drop_overflow_ids "$dir/nvidia.yaml"
     log "GPU: CDI spec $dir/nvidia.yaml"
   else
     warn "GPU: nvidia-ctk cdi generate failed, see $XDG_RUNTIME_DIR/nvidia-cdi.log (NVIDIA_CDI_ARGS)"
+  fi
+}
+
+# In a user-namespaced pod the device nodes belong to the overflow ids (65534, "nobody": host owner not
+# mapped), and nvidia-ctk copies that into the spec as uid/gid and additionalGids. Rootless dockerd maps
+# only 0..64535 into nested containers, so runc fails: "unable to setup user: setgroups: invalid
+# argument". The overflow ids carry no access anyway (the nodes are 0666), so they are dropped.
+gpu_cdi_drop_overflow_ids() {
+  local spec=$1 uid gid tmp
+  uid=$(cat /proc/sys/kernel/overflowuid 2>/dev/null || echo 65534)
+  gid=$(cat /proc/sys/kernel/overflowgid 2>/dev/null || echo 65534)
+  tmp=$(mktemp "$spec.XXXXXX")
+  # shellcheck disable=SC2016
+  if yq -y --argjson ou "$uid" --argjson og "$gid" '
+      walk(
+        if type == "object" then
+          (if .uid == $ou then del(.uid) else . end)
+          | (if .gid == $og then del(.gid) else . end)
+          | (if has("additionalGids") then
+               (.additionalGids |= map(select(. != $og)))
+               | (if (.additionalGids | length) == 0 then del(.additionalGids) else . end)
+             else . end)
+        else . end
+      )' "$spec" >"$tmp"; then
+    chmod 0644 "$tmp"
+    mv "$tmp" "$spec"
+  else
+    rm -f "$tmp"
+    warn "GPU: could not drop the overflow ids from $spec (nested GPU containers may fail: setgroups)"
   fi
 }
 

@@ -75,8 +75,13 @@ RUN if [ "$VARIANT" != cuda ]; then exit 0; fi; \
     "nvidia-container-toolkit=$v" "nvidia-container-toolkit-base=$v" \
     "libnvidia-container-tools=$v" "libnvidia-container1=$v" nvtop; \
   rm -rf /var/lib/apt/lists/*; \
-  # rootless dockerd cannot manage device cgroups; CDI (--device nvidia.com/gpu=all) works in both modes
-  nvidia-ctk config --set nvidia-container-cli.no-cgroups --in-place; \
+  # rootless dockerd cannot manage device cgroups; CDI (--device nvidia.com/gpu=all) works in both modes.
+  # mode=cdi: --runtime=nvidia / NVIDIA_VISIBLE_DEVICES use the CDI spec the entrypoint generates (and
+  # cleans, see gpu.sh) instead of nvidia-container-cli, which needs host privileges.
+  nvidia-ctk config --in-place --set nvidia-container-cli.no-cgroups \
+    --set nvidia-container-runtime.mode=cdi \
+    --set nvidia-container-runtime.modes.cdi.spec-dirs=/etc/cdi:/var/run/cdi:/run/agent/cdi; \
+  grep -qE '^mode = "cdi"' /etc/nvidia-container-runtime/config.toml; \
   nvidia-ctk --version
 
 # --- Chrome for Testing ----------------------------------------------------------------------------
