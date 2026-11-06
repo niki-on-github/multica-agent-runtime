@@ -22,6 +22,7 @@ gpu_setup() {
   if nvidia-ctk cdi generate --output="$dir/nvidia.yaml" ${NVIDIA_CDI_ARGS:-} \
     >"$XDG_RUNTIME_DIR/nvidia-cdi.log" 2>&1; then
     gpu_cdi_drop_overflow_ids "$dir/nvidia.yaml"
+    gpu_cdi_add_nix_deps "$dir/nvidia.yaml"
     log "GPU: CDI spec $dir/nvidia.yaml"
   else
     warn "GPU: nvidia-ctk cdi generate failed, see $XDG_RUNTIME_DIR/nvidia-cdi.log (NVIDIA_CDI_ARGS)"
@@ -55,6 +56,42 @@ gpu_cdi_drop_overflow_ids() {
     rm -f "$tmp"
     warn "GPU: could not drop the overflow ids from $spec (nested GPU containers may fail: setgroups)"
   fi
+}
+
+# NixOS nodes: the driver tools in the spec (nvidia-smi, ...) are Nix binaries whose ELF interpreter and
+# RUNPATH point into /nix/store (glibc). nvidia-ctk mounts only the NVIDIA files, so in a nested
+# container `nvidia-smi` fails with "exec ...: no such file or directory". The store directories they
+# reference (and that this container has) are added to the spec as read-only mounts.
+gpu_cdi_add_nix_deps() {
+  local spec=$1 f d tmp
+  local -A dirs=()
+  command -v readelf >/dev/null || return 0
+  while read -r f; do
+    [ -f "$f" ] && [ -x "$f" ] || continue
+    while read -r d; do
+      d=$(cut -d/ -f1-4 <<<"$d")
+      [ -d "$d" ] && dirs[$d]=1
+    done < <(
+      readelf -l "$f" 2>/dev/null | sed -n 's|.*Requesting program interpreter: \(/nix/store/[^]]*\)].*|\1|p'
+      readelf -d "$f" 2>/dev/null | sed -n 's|.*(RUNPATH\|RPATH).*\[\(.*\)\]|\1|p' | tr ':' '\n' | grep '^/nix/store/'
+    )
+  done < <(yq -r '.. | .hostPath? // empty' "$spec" | grep -E '/bin/' | sort -u)
+  (( ${#dirs[@]} )) || return 0
+  tmp=$(mktemp "$spec.XXXXXX")
+  # shellcheck disable=SC2016
+  if printf '%s\n' "${!dirs[@]}" | sort | jq -R . | jq -s . >"$tmp.dirs" \
+    && yq -y --slurpfile dirs "$tmp.dirs" '
+      .containerEdits.mounts = ((.containerEdits.mounts // []) + ($dirs[0] | map(
+        {hostPath: ., containerPath: ., options: ["ro", "nosuid", "nodev", "rbind", "rprivate"]})))
+    ' "$spec" >"$tmp"; then
+    chmod 0644 "$tmp"
+    mv "$tmp" "$spec"
+    log "GPU: CDI spec mounts the Nix store paths of the driver tools: ${!dirs[*]}"
+  else
+    rm -f "$tmp"
+    warn "GPU: could not add the Nix store paths to $spec (nvidia-smi in nested containers may fail)"
+  fi
+  rm -f "$tmp.dirs"
 }
 
 # The NVIDIA container hook (runtimeClassName nvidia, legacy mode) mounts a tmpfs file over

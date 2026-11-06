@@ -137,7 +137,10 @@ mount when the container starts as root (also uid 0 of a user-namespaced pod).
 In a user-namespaced pod the GPU device nodes belong to the overflow id 65534, which `nvidia-ctk`
 copies into the spec (`gid`, `additionalGids`); rootless Docker cannot map it (`setgroups: invalid
 argument`), so the entrypoint drops those ids from the spec. The NVIDIA runtime is set to `mode = "cdi"`:
-`--runtime=nvidia -e NVIDIA_VISIBLE_DEVICES=all` and `--device nvidia.com/gpu=all` use the same spec. `NVIDIA_CDI_ARGS` passes extra flags (e.g.
+`--runtime=nvidia -e NVIDIA_VISIBLE_DEVICES=all` and `--device nvidia.com/gpu=all` use the same spec.
+On NixOS nodes `nvidia-smi` and the other driver tools are Nix binaries whose ELF interpreter (glibc)
+lives elsewhere in `/nix/store`; the entrypoint adds those store paths to the spec, otherwise nested
+containers fail with `exec /usr/local/bin/nvidia-smi: no such file or directory`. `NVIDIA_CDI_ARGS` passes extra flags (e.g.
 `--library-search-path` for unusual driver locations). `doctor --gpu` runs `nvidia-smi` in a nested
 CUDA container.
 
