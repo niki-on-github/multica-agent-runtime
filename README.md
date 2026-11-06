@@ -53,8 +53,10 @@ Everything else comes through Nix: `nix shell nixpkgs#go -c go version`.
 ## How Multica uses the agents
 
 The daemon finds every supported CLI on `PATH` and registers **one runtime per CLI and workspace**
-(e.g. "Cluster Runner · Claude Code", "Cluster Runner · OpenCode"). In the Multica UI an agent is
-bound to one runtime and model; issues assigned to it run with that CLI. Build with
+named `$MULTICA_AGENT_RUNTIME_NAME · <CLI>` (e.g. "multica-agent-gpu-01 · Claude Code"). In the Multica UI
+an agent is bound to one runtime and model; issues assigned to it run with that CLI. Several runners
+(e.g. a cpu and a cuda one) can serve the same workspace: give each its own `MULTICA_DAEMON_ID`,
+runtime name and `/home/agent` volume (logins are per runner). Build with
 `--build-arg AGENTS="claude opencode"` to leave one out. The daemon detects CLIs and their models at
 start: restart it after logging in to a CLI.
 
@@ -65,13 +67,31 @@ start: restart it after logging in to a CLI.
 | Command | |
 |---|---|
 | `daemon` (default) | `multica login --token $MULTICA_TOKEN`, then `multica daemon start --foreground`; starts Docker per `DIND_MODE` (default `auto`). Without a token it logs a hint and waits. |
-| `shell` | web terminal (`ttyd`) on `$TTYD_PORT` (7681): a login shell per browser tab; `https://<host>/?arg=tmux` attaches the persistent tmux session `main` instead. Uses an existing Docker daemon, never starts one. No authentication of its own: put it behind an authenticating proxy. |
+| `shell` | web terminal (`ttyd`) on `$TTYD_PORT` (7681): a login shell per browser tab; `https://<host>/?arg=tmux` attaches the persistent tmux session `main` instead. Uses an existing Docker daemon, never starts one. **No authentication of its own**, see [Web shell](#web-shell). |
 | `doctor [--gpu] [--json] [--strict]` | runtime check |
 | anything else | runs it after the same setup (`DIND_MODE` default `off`) |
 
 Startup (both `daemon` and `shell`): `$HOME` is seeded from `/etc/agent-skel` (missing files only),
 the CA bundle is spread to all tools, git/gh/tea are configured from env, a CDI spec is generated
 for visible GPUs, Docker is started.
+
+## Web shell
+
+`shell` runs [ttyd](https://github.com/tsl0922/ttyd): a full terminal as the agent user, with every token
+of the container (Multica, GitHub, LLM keys, CLI logins) and the Docker daemon. ttyd itself has **no
+login** (it only checks the WebSocket origin), so never expose port 7681 directly. Put it behind an
+**authenticating reverse proxy** (also called an auth proxy or SSO/OIDC gateway) that lets only you
+through, for example:
+
+- OIDC at the ingress/gateway: Envoy Gateway `SecurityPolicy` (`oidc`), Traefik/NGINX forward auth
+- a dedicated proxy in front: [oauth2-proxy](https://github.com/oauth2-proxy/oauth2-proxy),
+  [Pomerium](https://www.pomerium.com/), Authelia, Authentik
+- a tunnel with access control: Tailscale, Cloudflare Access
+
+Use TLS (the terminal and OAuth codes go over the WebSocket), allow only the proxy to reach the port
+(NetworkPolicy), and do not add exceptions for "internal" IPs. Without such a proxy use
+`kubectl port-forward` / `docker run -p 127.0.0.1:7681:7681`, or as a minimal fallback ttyd's basic
+auth: `TTYD_ARGS="--credential user:password"` (over TLS only).
 
 ## Logins and persistence
 
@@ -109,6 +129,11 @@ Real `dockerd`, listening on `DOCKER_HOST=unix:///run/agent/docker.sock`, data i
 | `external` | only the CLI, against `DOCKER_HOST` |
 | `off` | no Docker |
 
+`/run/agent` is usually an `emptyDir`, which survives container restarts together with the files of
+the previous daemon. Files a rootless daemon created belong to its subordinate ids, so only root can
+remove them: start the container as root (as for rootless on Kubernetes), the entrypoint cleans up
+before it drops to the agent user.
+
 Publish container ports on loopback (`-p 127.0.0.1:8080:8080`) and test against `127.0.0.1`; in
 rootless mode container IPs are not reachable from the agent.
 
@@ -143,6 +168,22 @@ lives elsewhere in `/nix/store`; the entrypoint adds those store paths to the sp
 containers fail with `exec /usr/local/bin/nvidia-smi: no such file or directory`. `NVIDIA_CDI_ARGS` passes extra flags (e.g.
 `--library-search-path` for unusual driver locations). `doctor --gpu` runs `nvidia-smi` in a nested
 CUDA container.
+
+All fixes above only act when their problem is present, so the same image works on Kubernetes and
+plain Docker, on NixOS and on common distributions (driver in `/usr/lib`, nothing to add). The host
+needs the NVIDIA driver and the NVIDIA Container Toolkit (`--gpus all` must work there). With plain
+Docker start as root, since the image's default user is 1000:
+
+```sh
+docker run --rm -it --gpus all --user 0 \
+  --security-opt seccomp=unconfined --security-opt apparmor=unconfined --security-opt systempaths=unconfined \
+  --cap-add SYS_ADMIN --device /dev/net/tun -v agent-home:/home/agent -v agent-data:/data \
+  -e DIND_MODE=rootless ghcr.io/niki-on-github/multica-agent-runtime:cuda doctor --gpu
+```
+
+Test images for nested containers: `nvidia/cuda:<version>-base-ubuntu26.04` (`nvidia-smi`), the CUDA
+samples (`nvcr.io/nvidia/k8s/cuda-sample:vectoradd-*`, prints `Test PASSED`) or PyTorch
+(`torch.cuda.get_device_name(0)`).
 
 ## Browser testing
 

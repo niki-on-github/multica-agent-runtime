@@ -37,7 +37,7 @@ args:
 GPU: start the container as root (`runAsUser: 0`, as for rootless Docker): the NVIDIA hook mounts a file
 over `/proc/driver/nvidia/params`, which blocks `/proc` for every nested container until the entrypoint
 removes it. GPU: `runtimeClassName: nvidia` (and `NVIDIA_VISIBLE_DEVICES` / a GPU resource, depending on how
-the cluster exposes GPUs) with the `cuda` image. `doctor --gpu` verifies nested GPU containers.
+the cluster exposes GPUs) with the `cuda` image. Several pods can share one GPU this way (no VRAM limit). `doctor --gpu` verifies nested GPU containers.
 
 ## Volumes
 
@@ -142,8 +142,13 @@ spec:
         - {name: tmp, emptyDir: {}}
 ```
 
-Expose the shell (port 7681, WebSocket) only behind an authenticating proxy (OIDC); it gives access
-to every token in the pod and to Docker. Restrict it with a NetworkPolicy to the gateway.
+Expose the shell (port 7681, WebSocket) only behind an authenticating reverse proxy (OIDC at the
+gateway, oauth2-proxy, ...; see [Web shell](../README.md#web-shell)): ttyd has no login and the shell
+gives access to every token in the pod and to Docker. Restrict it with a NetworkPolicy to the gateway.
+
+Several runners (e.g. one `cpu`, one `cuda` with the GPU): one Deployment each, with its own
+`MULTICA_DAEMON_ID` / `MULTICA_DAEMON_DEVICE_NAME` / `MULTICA_AGENT_RUNTIME_NAME`, its own PVCs and its
+own shell hostname. They can share the secret.
 
 Restart the `app` container after a new CLI login in the shell: the Multica daemon detects CLIs and
 their models at start.
