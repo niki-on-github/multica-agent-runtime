@@ -116,9 +116,17 @@ dind_write_config() {
   printf '%s\n' "$cfg" > "$DIND_CONFIG"
 }
 
+# State of a previous daemon in $XDG_RUNTIME_DIR (an emptyDir survives container restarts). Files a
+# rootless daemon created belong to its subordinate ids, which only root of this container may remove:
+# the root phase cleans up first, the agent's own pass is best effort.
+dind_clean_state() {
+  rm -f "$DIND_SOCK" "$XDG_RUNTIME_DIR/docker.pid" 2>/dev/null || :
+  rm -rf "$XDG_RUNTIME_DIR/dockerd-rootless" "$XDG_RUNTIME_DIR/docker" 2>/dev/null \
+    || warn "could not remove the state of a previous dockerd in $XDG_RUNTIME_DIR"
+}
+
 dind_prepare() {
-  rm -f "$DIND_SOCK" "$XDG_RUNTIME_DIR/docker.pid"
-  rm -rf "$XDG_RUNTIME_DIR/dockerd-rootless" "$XDG_RUNTIME_DIR/docker"
+  dind_clean_state
   : > "$DIND_LOG"
   mkdir -p "$DIND_DATA_ROOT"
   if [ "$(stat -f -c %T "$DIND_DATA_ROOT" 2>/dev/null)" = overlayfs ]; then
@@ -179,7 +187,10 @@ dind_wait() {
 dind_root_phase() {
   dind_resolve
   case "$DIND_MODE" in
-    rootless) dind_fit_subids ;;
+    rootless)
+      dind_clean_state
+      dind_fit_subids
+      ;;
     rootful)
       dind_prepare
       dind_start_rootful
