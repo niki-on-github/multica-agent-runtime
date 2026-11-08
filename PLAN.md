@@ -1,7 +1,7 @@
 # multica-agent-runtime: plan
 
 Container images that run the [Multica](https://github.com/multica-ai/multica) agent daemon with Claude Code
-and OpenCode, built here with GitHub Actions and deployed to the `nixos-ai` cluster later (step 2).
+built here with GitHub Actions and deployed to the `nixos-ai` cluster later (step 2).
 
 Status: step 1 implemented (images, CI, Renovate); not yet built on GitHub. Step 2 (cluster) open.
 Deviations found while implementing are marked *(impl)*.
@@ -31,7 +31,6 @@ multica-agent-runtime/
 ├── rootfs/
 │   ├── etc/agent-skel/                 # seeded into $HOME on start, missing files only
 │   │   ├── .bashrc  .tmux.conf  .vimrc
-│   │   └── .config/opencode/opencode.json.example
 │   ├── etc/nix/nix.conf                # single-user, flakes, sandbox = false
 │   ├── etc/profile.d/{nix,agent}.sh
 │   ├── etc/docker/daemon.json          # rootful defaults (data-root /data/docker)
@@ -53,9 +52,9 @@ multica-agent-runtime/
 
 **Agents and Multica**
 - `multica`: `COPY --from=ghcr.io/multica-ai/multica-backend:<tag>@sha256:… /app/multica`; the tag sets the image version
-- Claude Code (`@anthropic-ai/claude-code`), OpenCode (`opencode-ai`), Codex (`@openai/codex`), Pi (`@earendil-works/pi-coding-agent`): pinned npm
+- Claude Code (`@anthropic-ai/claude-code`), Codex (`@openai/codex`), Pi (`@earendil-works/pi-coding-agent`): pinned npm
   ARGs, global prefix `/usr/local` *(impl: runtime installs of the agent go to `~/.local`)*, auto-update off (`DISABLE_AUTOUPDATER=1`, the daemon has
-  `MULTICA_DAEMON_AUTO_UPDATE=false`). Oh My Pi (`omp`): pinned release binary with sha256 (its npm package needs Bun). `ARG AGENTS="claude opencode codex pi omp"` can drop one.
+  `MULTICA_DAEMON_AUTO_UPDATE=false`). Oh My Pi (`omp`): pinned release binary with sha256 (its npm package needs Bun). `ARG AGENTS="claude codex pi omp"` can drop one.
 - Browser MCPs preinstalled (no `npx` download at task time): `@playwright/mcp`, `chrome-devtools-mcp`
 - Chrome for Testing (Stable), pinned, installed to `/opt/google/chrome/chrome` (the default path of both MCPs),
   plus its system libs and `fonts-liberation`, `fonts-noto-color-emoji`
@@ -180,10 +179,10 @@ Referenced from the agents' instructions in Multica.
 
 ## 5b. How Multica picks the agent CLI
 
-- on start the daemon detects every supported CLI on `PATH` (`claude`, `opencode`, `codex`, …) and refuses to start
+- on start the daemon detects every supported CLI on `PATH` (`claude`, `codex`, …) and refuses to start
   without one
 - it registers **one runtime per CLI and workspace**, e.g. "Cluster Runner · Claude Code" and
-  "Cluster Runner · OpenCode"
+  "Cluster Runner · Codex"
 - in the Multica UI an agent (teammate) is bound to one runtime + model; issues assigned to that agent run with that
   CLI. Several agents on different runtimes side by side are fine
 - the model list comes from the runtime (CLI login/config); a CLI that is installed but not logged in still
@@ -209,7 +208,6 @@ Referenced from the agents' instructions in Multica.
 | Tool | State | Kept by |
 |---|---|---|
 | Claude Code | `CLAUDE_CONFIG_DIR=$HOME/.claude` (credentials + `.claude.json`) | home PVC, or `CLAUDE_CODE_OAUTH_TOKEN` (`claude setup-token`, 1 year) / `ANTHROPIC_API_KEY` / `ANTHROPIC_BASE_URL` from the Secret |
-| OpenCode | `~/.local/share/opencode/auth.json`, sessions | home PVC; LLM gateway via config + `LLM_API_KEY` needs no login |
 | Codex | `~/.codex` | home PVC or `OPENAI_API_KEY` |
 | Multica | `~/.multica/config.json` | `MULTICA_TOKEN`, re-applied every start |
 | gh / tea | `~/.config/gh`, `~/.config/tea` | `GH_TOKEN` / `GITEA_TOKEN`, re-applied every start |
@@ -224,7 +222,6 @@ localhost callback:
 | CLI | Command | Flow |
 |---|---|---|
 | Claude Code | `claude` → `/login` | URL, paste the code back |
-| OpenCode | `opencode auth login` | paste a code / device code |
 | Codex | `codex login --device-auth` | device code |
 | gh | `gh auth login --web` | device code (usually not needed, `GH_TOKEN`) |
 | MCP OAuth (localhost callback) | – | copy the failed redirect URL from the browser, `curl '<url>'` in the shell |
@@ -241,7 +238,6 @@ No ttyd auth of its own: Kanidm in front (step 2). `kubectl exec -it … -- tmux
 | `GH_TOKEN`, `GITEA_URL`, `GITEA_TOKEN` | – | git hosts |
 | `GIT_AUTHOR_NAME`, `GIT_AUTHOR_EMAIL` | – | commit identity |
 | `CLAUDE_CODE_OAUTH_TOKEN`, `ANTHROPIC_API_KEY`, `ANTHROPIC_BASE_URL` | – | Claude Code |
-| `OPENCODE_CONFIG`, `LLM_API_KEY` | – | OpenCode |
 | `OPENAI_API_KEY` | – | Codex |
 | `DIND_MODE`, `DIND_START_TIMEOUT`, `DOCKER_REGISTRY_MIRRORS` | `auto`, `60` | Docker |
 | `NIX_CONFIG`, `PIP_INDEX_URL`, `UV_DEFAULT_INDEX`, `HF_ENDPOINT`, `NPM_CONFIG_REGISTRY` | – | caches |
@@ -260,7 +256,7 @@ No ttyd auth of its own: Kanidm in front (step 2). `kubectl exec -it … -- tmux
 
 Run as uid 1000 with an empty tmpfs `$HOME`:
 
-- `multica`, `claude`, `opencode`, `codex`, `gh`, `tea`, `vim`, `tmux`, `ttyd`, Chrome `--version`
+- `multica`, `claude`, `codex`, `gh`, `tea`, `vim`, `tmux`, `ttyd`, Chrome `--version`
 - home seed creates the skel files and does not overwrite an existing one
 - `nix run nixpkgs#hello`, `NIX_CONFIG` honoured
 - Chrome headless screenshot of `data:text/html,…`; both MCPs start (`--help`)
@@ -285,7 +281,7 @@ Run as uid 1000 with an empty tmpfs `$HOME`:
 
 | Dependency | Datasource |
 |---|---|
-| Claude Code, OpenCode, Codex, Playwright MCP, Playwright, chrome-devtools-mcp | npm |
+| Claude Code, Codex, Playwright MCP, Playwright, chrome-devtools-mcp | npm |
 | nvidia-container-toolkit | github-releases (`NVIDIA/nvidia-container-toolkit`) |
 | Multica backend, Ubuntu, CUDA, Nix, Node, uv | docker (tag + digest) |
 | gh, ttyd, Docker (`moby/moby`) | github-releases / github-release-attachments |
@@ -294,7 +290,7 @@ Run as uid 1000 with an empty tmpfs `$HOME`:
 | GitHub Actions | github-actions |
 | apt packages | not pinned, weekly rebuild |
 
-Groups (one commit, one build): `agent CLIs` (Claude Code, OpenCode, Codex), `browser` (Chrome, both MCPs,
+Groups (one commit, one build): `agent CLIs` (Claude Code, Codex), `browser` (Chrome, both MCPs,
 Playwright), `github actions`.
 
 One-time setup: enable the Renovate GitHub app for this repo.

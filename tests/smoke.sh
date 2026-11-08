@@ -26,18 +26,17 @@ grep -q '# local edit' "$HOME/.vimrc" || fail "seed overwrote an existing file"
 
 step "versions"
 jq . /etc/multica-agent-runtime/versions.json
-for k in multica claude-code opencode codex pi omp chrome playwright docker gh tea ttyd; do
+for k in multica claude-code codex pi omp chrome playwright docker gh tea ttyd; do
   [ -n "$(jq -r --arg k "$k" '.[$k] // empty' /etc/multica-agent-runtime/versions.json)" ] || fail "no version for $k"
 done
 
 step "CLIs"
-for c in multica claude opencode codex pi omp gh tea git git-lfs vim tmux ttyd node npm pnpm uv uvx python3 \
+for c in multica claude codex pi omp gh tea git git-lfs vim tmux ttyd node npm pnpm uv uvx python3 \
   jq yq rg fd docker playwright playwright-mcp chrome-devtools-mcp bwrap socat nix; do
   command -v "$c" >/dev/null || fail "$c not on PATH"
 done
 multica version
 claude --version
-opencode --version
 codex --version
 pi --version
 omp --version
@@ -64,8 +63,6 @@ for f in "$HOME/.claude/.claude.json" "$HOME/.pi/agent/mcp.json" "$HOME/.omp/age
   jq -e '.mcpServers | has("playwright") and has("chrome-devtools")' "$f" >/dev/null || fail "browser MCPs missing in $f"
 done
 [ "$(readlink "$HOME/.claude.json")" = "$HOME/.claude/.claude.json" ] || fail "$HOME/.claude.json not linked to $HOME/.claude/.claude.json"
-jq -e '.mcp | has("playwright") and has("chrome-devtools")' "$HOME/.config/opencode/opencode.json" >/dev/null \
-  || fail "browser MCPs missing in opencode.json"
 for n in playwright chrome-devtools; do
   grep -qE "^\[mcp_servers\.(\"$n\"|$n)\]" "$HOME/.codex/config.toml" || fail "$n missing in codex config.toml"
 done
@@ -81,7 +78,7 @@ jq '.mcpServers.playwright.args = ["--own"]' "$HOME/.pi/agent/mcp.json" > "$OUT/
 cp "$OUT/pi-mcp.json" "$HOME/.pi/agent/mcp.json"
 mcp_sums() {
   sha256sum "$HOME/.claude/.claude.json" "$HOME/.pi/agent/mcp.json" "$HOME/.omp/agent/mcp.json" \
-    "$HOME/.config/opencode/opencode.json" "$HOME/.codex/config.toml"
+    "$HOME/.codex/config.toml"
 }
 before=$(mcp_sums)
 bash -c '. /usr/local/lib/multica-agent-runtime/common.sh; . /usr/local/lib/multica-agent-runtime/mcp.sh; register_browser_mcps'

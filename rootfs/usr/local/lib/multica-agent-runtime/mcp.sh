@@ -3,7 +3,7 @@
 # Browser MCP servers (Playwright MCP, chrome-devtools-mcp) in the user-level config of every installed
 # agent CLI. Runs on every start: names that already exist are left alone, so own edits win and a
 # second run changes nothing. These are the files the Multica daemon reads when it merges the servers
-# managed in its web UI into a task (Claude, Codex, OpenCode), or that the CLI reads itself next to
+# managed in its web UI into a task (Claude, Codex), or that the CLI reads itself next to
 # them (Pi, omp).
 #   BROWSER_MCP=0                 register nothing
 #   BROWSER_MCP_ARGS_PLAYWRIGHT   arguments of playwright-mcp (default below)
@@ -78,15 +78,6 @@ mcp_register_claude() {
   mcp_register_mcpservers "$file" '{"type":"stdio"}'
 }
 
-mcp_register_opencode() {
-  mcp_json_merge "${XDG_CONFIG_HOME:-$HOME/.config}/opencode/opencode.json" mcp '
-    (if has("$schema") then . else {"$schema": "https://opencode.ai/config.json"} + . end)
-    | .mcp = ((.mcp // {}) as $have
-      | $have + ($servers
-        | with_entries(select(.key as $k | $have | has($k) | not))
-        | map_values({type: "local", command: ([.command] + .args), enabled: true})))'
-}
-
 mcp_register_codex() {
   local file=${CODEX_HOME:-$HOME/.codex}/config.toml name
   mkdir -p "$(dirname "$file")"
@@ -109,7 +100,6 @@ register_browser_mcps() {
   BROWSER_MCP_SERVERS=$(browser_mcp_servers) || { warn "browser MCP: bad server arguments"; return 0; }
   if command -v claude >/dev/null; then mcp_register_claude; fi
   if command -v codex >/dev/null; then mcp_register_codex; fi
-  if command -v opencode >/dev/null; then mcp_register_opencode; fi
   # Pi and omp: a server in these files wins over a same-named one Multica registers for a task
   if command -v pi >/dev/null; then mcp_register_mcpservers "$HOME/.pi/agent/mcp.json"; fi
   if command -v omp >/dev/null; then mcp_register_mcpservers "$HOME/.omp/agent/mcp.json"; fi

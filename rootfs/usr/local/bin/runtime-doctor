@@ -30,12 +30,12 @@ bad() { printf '  [FAIL] %s\n' "$*"; failed=1; }
 hint() { printf '         %s\n' "$*"; }
 
 section "image"
-jq -r '"  variant \(.variant), \(.multica), Claude Code \(."claude-code"), OpenCode \(.opencode), Codex \(.codex), Pi \(.pi), Oh My Pi \(.omp)"' \
+jq -r '"  variant \(.variant), \(.multica), Claude Code \(."claude-code"), Codex \(.codex), Pi \(.pi), Oh My Pi \(.omp)"' \
   /etc/multica-agent-runtime/versions.json 2>/dev/null || bad "versions.json missing"
 printf '  uid %s, HOME %s\n' "$(id -u)" "$HOME"
 
 section "agent CLIs (one Multica runtime each)"
-for c in claude opencode codex pi omp; do
+for c in claude codex pi omp; do
   if command -v "$c" >/dev/null; then ok "$c: $(command -v "$c")"; else no "$c not installed"; fi
 done
 
@@ -45,9 +45,6 @@ elif is_set CLAUDE_CODE_OAUTH_TOKEN; then ok "Claude Code: CLAUDE_CODE_OAUTH_TOK
 elif is_set ANTHROPIC_API_KEY; then ok "Claude Code: ANTHROPIC_API_KEY"
 elif is_set ANTHROPIC_BASE_URL; then ok "Claude Code: ANTHROPIC_BASE_URL ($ANTHROPIC_BASE_URL)"
 else no "Claude Code: not logged in"; hint "web shell: claude, then /login (paste the code back)"; fi
-if [ -s "$HOME/.local/share/opencode/auth.json" ]; then ok "OpenCode: $(jq -r 'keys | join(", ")' "$HOME/.local/share/opencode/auth.json" 2>/dev/null) (auth.json)"
-elif [ -n "${OPENCODE_CONFIG:-}" ]; then ok "OpenCode: config $OPENCODE_CONFIG"
-else no "OpenCode: no provider login or config"; hint "opencode auth login, or OPENCODE_CONFIG with a provider"; fi
 if [ -s "$HOME/.codex/auth.json" ]; then ok "Codex: login (~/.codex/auth.json)"
 elif is_set OPENAI_API_KEY; then ok "Codex: OPENAI_API_KEY"
 else no "Codex: not logged in"; hint "codex login --device-auth"; fi
@@ -95,7 +92,7 @@ if out=$(/opt/google/chrome/chrome --version 2>&1); then ok "$out (/opt/google/c
 ok "playwright $(playwright --version 2>/dev/null | awk '{print $2}'), MCPs: playwright-mcp, chrome-devtools-mcp"
 registered=() missing=()
 for entry in "claude|${CLAUDE_CONFIG_DIR:-$HOME/.claude}/.claude.json|.mcpServers" \
-  "opencode|$HOME/.config/opencode/opencode.json|.mcp" "pi|$HOME/.pi/agent/mcp.json|.mcpServers" \
+  "pi|$HOME/.pi/agent/mcp.json|.mcpServers" \
   "omp|$HOME/.omp/agent/mcp.json|.mcpServers"; do
   IFS='|' read -r agent file key <<<"$entry"
   command -v "$agent" >/dev/null || continue

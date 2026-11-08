@@ -1,7 +1,7 @@
 # multica-agent-runtime
 
 Container images that run the [Multica](https://github.com/multica-ai/multica) agent daemon with
-**Claude Code**, **OpenCode**, **Codex**, **Pi** and **Oh My Pi**, made for Kubernetes: Docker-in-Docker (rootless or
+**Claude Code**, **Codex**, **Pi** and **Oh My Pi**, made for Kubernetes: Docker-in-Docker (rootless or
 rootful), a CUDA variant with GPU access for nested containers, Chrome for Testing + Playwright for
 browser tests, Nix with configurable caches, `gh` and `tea`, and a web terminal for the CLI logins.
 
@@ -14,7 +14,7 @@ ghcr.io/niki-on-github/multica-agent-runtime:<multica-version>-<variant>[-<sha7>
 
 **The version in the tag is the Multica agent (daemon) version**, not a version of this repo: the
 `multica` binary is copied from `ghcr.io/multica-ai/multica-backend:<multica-version>`. Pick the tag
-that matches your Multica server. Everything else in the image (Claude Code, OpenCode, Codex, Chrome,
+that matches your Multica server. Everything else in the image (Claude Code, Codex, Chrome,
 Docker, ...) is updated by Renovate independently and does not change the version part; the exact
 versions of an image are in `/etc/multica-agent-runtime/versions.json` (`doctor` prints them).
 
@@ -40,7 +40,7 @@ at build time (e.g. `libasound2` → `libasound2t64`). Images are rebuilt on eve
 | | |
 |---|---|
 | Multica | `multica` CLI/daemon (copied from the official backend image) |
-| Agents | Claude Code, OpenCode, Codex, Pi (npm), Oh My Pi (release binary); pinned, auto-update off |
+| Agents | Claude Code, Codex, Pi (npm), Oh My Pi (release binary); pinned, auto-update off |
 | Browser | Chrome for Testing at `/opt/google/chrome/chrome`, `@playwright/test`, Playwright MCP, chrome-devtools-mcp, xvfb |
 | Containers | Docker engine (rootless extras, buildx, compose), slirp4netns, fuse-overlayfs; cuda: nvidia-container-toolkit, nvtop |
 | Git | git, git-lfs, gh, tea, openssh-client |
@@ -57,7 +57,7 @@ named `$MULTICA_AGENT_RUNTIME_NAME · <CLI>` (e.g. "multica-agent-gpu-01 · Clau
 an agent is bound to one runtime and model; issues assigned to it run with that CLI. Several runners
 (e.g. a cpu and a cuda one) can serve the same workspace: give each its own `MULTICA_DAEMON_ID`,
 runtime name and `/home/agent` volume (logins are per runner). Build with
-`--build-arg AGENTS="claude opencode"` to leave one out. The daemon detects CLIs and their models at
+`--build-arg AGENTS="claude codex"` to leave one out. The daemon detects CLIs and their models at
 start: restart it after logging in to a CLI.
 
 ## Commands
@@ -100,7 +100,6 @@ Mount a volume at `/home/agent`: logins and CLI state live there and survive res
 | Tool | Login | Alternative |
 |---|---|---|
 | Claude Code (subscription) | `claude` → `/login` in the web shell (shows a URL, paste the code back) | `CLAUDE_CODE_OAUTH_TOKEN` from `claude setup-token` (1 year), `ANTHROPIC_API_KEY`, `ANTHROPIC_BASE_URL` |
-| OpenCode | `opencode auth login` | provider config (`OPENCODE_CONFIG`) with an API key |
 | Codex | `codex login --device-auth` | `OPENAI_API_KEY` |
 | Pi | `pi` → `/login` in the web shell | provider API keys (e.g. `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`) |
 | Oh My Pi | `omp` → `/login` in the web shell | provider API keys (e.g. `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`) |
@@ -203,12 +202,11 @@ so parallel tasks do not collide. Names that already exist are left alone, so ow
 |---|---|
 | Claude Code | `~/.claude/.claude.json` (`$CLAUDE_CONFIG_DIR`); `~/.claude.json` links to it, since that is the file the Multica daemon merges |
 | Codex | `~/.codex/config.toml` |
-| OpenCode | `~/.config/opencode/opencode.json` |
 | Pi | `~/.pi/agent/mcp.json` |
 | Oh My Pi | `~/.omp/agent/mcp.json` |
 
 MCP servers managed in the Multica web UI are added to these, not used instead of them. On a name
-clash Multica's entry wins for Claude, Codex and OpenCode, the image's for Pi and Oh My Pi (both
+clash Multica's entry wins for Claude and Codex, the image's for Pi and Oh My Pi (both
 prefer their config files over servers registered for the task), so do not reuse the names
 `playwright` and `chrome-devtools` in Multica. `BROWSER_MCP=0` registers nothing;
 `BROWSER_MCP_ARGS_PLAYWRIGHT` / `BROWSER_MCP_ARGS_DEVTOOLS` set the arguments of new entries.
@@ -237,7 +235,7 @@ Nothing is baked in; the standard variables are read natively:
 | `MULTICA_WORKSPACES_ROOT`, `MULTICA_AGENT_TEMP_BASE` | `/data/workspaces`, `/data/tmp` | |
 | `GH_TOKEN`, `GITEA_URL`, `GITEA_TOKEN`, `GITEA_USER` | – | git hosts |
 | `GIT_AUTHOR_NAME`, `GIT_AUTHOR_EMAIL` | – | commit identity |
-| `CLAUDE_CODE_OAUTH_TOKEN`, `ANTHROPIC_API_KEY`, `ANTHROPIC_BASE_URL`, `OPENAI_API_KEY`, `OPENCODE_CONFIG` | – | agent auth |
+| `CLAUDE_CODE_OAUTH_TOKEN`, `ANTHROPIC_API_KEY`, `ANTHROPIC_BASE_URL`, `OPENAI_API_KEY` | – | agent auth |
 | `DIND_MODE` | `auto` (`daemon`) | Docker mode |
 | `DIND_DATA_ROOT`, `DIND_START_TIMEOUT`, `DIND_STORAGE_DRIVER`, `DIND_IPTABLES=legacy`, `DIND_DAEMON_JSON` | `/data/docker`, `60` | Docker tuning (`DIND_DAEMON_JSON` is merged into daemon.json) |
 | `DOCKERD_ROOTLESS_ROOTLESSKIT_NET` | `slirp4netns` | rootless network driver (`pasta` also installed) |

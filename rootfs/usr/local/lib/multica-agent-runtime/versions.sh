@@ -12,7 +12,6 @@ declare -A v=(
   [variant]="${VARIANT:-unknown}"
   [multica]="$(first_line multica version)"
   [claude-code]="$(first_line claude --version)"
-  [opencode]="$(first_line opencode --version)"
   [codex]="$(first_line codex --version)"
   [pi]="$(first_line pi --version)"
   [omp]="$(first_line omp --version)"
