@@ -7,6 +7,7 @@
   ],
   "dependencyDashboard": true,
   "dependencyDashboardTitle": "Renovate Dashboard",
+  "dependencyDashboardApproval": false,
   "labels": [
     "renovatebot"
   ],
@@ -60,7 +61,8 @@
       ],
       "groupName": "all dependencies",
       "groupSlug": "all",
-      "automerge": true
+      "automerge": true,
+      "dependencyDashboardApproval": false
     }
   ]
 }
