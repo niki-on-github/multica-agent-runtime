@@ -55,8 +55,9 @@ docker run --rm --device nvidia.com/gpu=all nvidia/cuda:13.4.3-base-ubuntu26.04 
 
 Chrome for Testing is at the default Chrome path (`/opt/google/chrome/chrome`, also `google-chrome`).
 
-- **MCP** (interactive): Playwright MCP (`playwright-mcp`) and `chrome-devtools-mcp` are installed;
-  they find Chrome without extra flags.
+- **MCP** (interactive): Playwright MCP and chrome-devtools-mcp are registered for every agent as
+  the servers `playwright` and `chrome-devtools` (headless, a fresh profile per session); they use
+  the installed Chrome.
 - **Scripted**: `@playwright/test` is installed globally (`playwright test`). Use the installed Chrome:
 
   ```js

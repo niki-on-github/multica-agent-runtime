@@ -110,6 +110,10 @@ Startup steps:
 3. **Git auth**: `gh auth setup-git` if `GH_TOKEN`; `tea login add` + git credential helper for the Gitea host if
    `GITEA_URL` + `GITEA_TOKEN`; `GIT_AUTHOR_*` / `GIT_COMMITTER_*`; optional SSH key + `known_hosts` from a mount.
 4. **DinD** (section 5).
+   *(impl)* Before it, under the same setup lock: **browser MCPs** (`mcp.sh`) register `playwright` and
+   `chrome-devtools` in the user config of every installed agent, missing names only. `~/.claude.json`
+   becomes a link to `$CLAUDE_CONFIG_DIR/.claude.json`: the Multica daemon merges the servers of
+   `~/.claude.json` into a task with managed MCP servers and runs Claude with `--strict-mcp-config`.
 
 ## 5. Docker-in-Docker
 

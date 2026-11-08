@@ -93,6 +93,23 @@ fi
 section "browser"
 if out=$(/opt/google/chrome/chrome --version 2>&1); then ok "$out (/opt/google/chrome/chrome)"; else bad "chrome: $out"; fi
 ok "playwright $(playwright --version 2>/dev/null | awk '{print $2}'), MCPs: playwright-mcp, chrome-devtools-mcp"
+registered=() missing=()
+for entry in "claude|${CLAUDE_CONFIG_DIR:-$HOME/.claude}/.claude.json|.mcpServers" \
+  "opencode|$HOME/.config/opencode/opencode.json|.mcp" "pi|$HOME/.pi/agent/mcp.json|.mcpServers" \
+  "omp|$HOME/.omp/agent/mcp.json|.mcpServers"; do
+  IFS='|' read -r agent file key <<<"$entry"
+  command -v "$agent" >/dev/null || continue
+  if jq -e "$key | has(\"playwright\") and has(\"chrome-devtools\")" "$file" >/dev/null 2>&1; then
+    registered+=("$agent")
+  else missing+=("$agent"); fi
+done
+if command -v codex >/dev/null; then
+  if grep -qE '^\[mcp_servers\.("?)playwright\1\]' "$HOME/.codex/config.toml" 2>/dev/null; then
+    registered+=(codex)
+  else missing+=(codex); fi
+fi
+[ "${#registered[@]}" -eq 0 ] || ok "browser MCPs (playwright, chrome-devtools) for: ${registered[*]}"
+[ "${#missing[@]}" -eq 0 ] || no "browser MCPs not registered for: ${missing[*]} (BROWSER_MCP=${BROWSER_MCP:-1})"
 shm_kb=$(df -Pk /dev/shm 2>/dev/null | awk 'NR==2 {print $2}')
 printf '  /dev/shm %s MiB%s\n' "$(( ${shm_kb:-0} / 1024 ))" "$([ "${shm_kb:-0}" -lt 1048576 ] && echo ' (small: Chrome uses --disable-dev-shm-usage)')"
 

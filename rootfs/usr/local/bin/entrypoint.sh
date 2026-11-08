@@ -25,6 +25,8 @@ LIB=/usr/local/lib/multica-agent-runtime
 . "$LIB/dind.sh"
 # shellcheck source=SCRIPTDIR/../lib/multica-agent-runtime/gpu.sh
 . "$LIB/gpu.sh"
+# shellcheck source=SCRIPTDIR/../lib/multica-agent-runtime/mcp.sh
+. "$LIB/mcp.sh"
 
 cmd=${1:-daemon}
 case "$cmd" in
@@ -61,10 +63,11 @@ if ! : > "$AGENT_ENV_FILE" 2>/dev/null; then
 fi
 seed_home
 setup_ca_env
-# containers of one pod share $HOME and /run/agent: serialize the git/tea config writes
+# containers of one pod share $HOME and /run/agent: serialize the git/tea and agent config writes
 (
   flock -w 30 9 || warn "setup lock busy, continuing"
   setup_git || warn "git/tea setup incomplete"
+  register_browser_mcps || warn "browser MCP registration incomplete"
 ) 9>"$XDG_RUNTIME_DIR/setup.lock"
 gpu_setup
 dind_agent_phase

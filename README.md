@@ -193,6 +193,25 @@ Chrome for Testing sits at the default Chrome path, so Playwright (`channel: 'ch
 Playwright MCP and chrome-devtools-mcp use it without configuration. The wrapper adds
 `--no-sandbox` when the user-namespace sandbox is unavailable and `--disable-dev-shm-usage` with a
 small `/dev/shm` (`CHROME_EXTRA_ARGS` for more). Give `/dev/shm` ≥ 1 GiB for heavy pages.
+
+Both MCP servers are registered for every installed agent on each start, as `playwright`
+(`playwright-mcp --browser chrome --headless --isolated`) and `chrome-devtools`
+(`chrome-devtools-mcp --headless --isolated`). `--isolated` gives each session a throwaway profile,
+so parallel tasks do not collide. Names that already exist are left alone, so own edits win.
+
+| Agent | File |
+|---|---|
+| Claude Code | `~/.claude/.claude.json` (`$CLAUDE_CONFIG_DIR`); `~/.claude.json` links to it, since that is the file the Multica daemon merges |
+| Codex | `~/.codex/config.toml` |
+| OpenCode | `~/.config/opencode/opencode.json` |
+| Pi | `~/.pi/agent/mcp.json` |
+| Oh My Pi | `~/.omp/agent/mcp.json` |
+
+MCP servers managed in the Multica web UI are added to these, not used instead of them. On a name
+clash Multica's entry wins for Claude, Codex and OpenCode, the image's for Pi and Oh My Pi (both
+prefer their config files over servers registered for the task), so do not reuse the names
+`playwright` and `chrome-devtools` in Multica. `BROWSER_MCP=0` registers nothing;
+`BROWSER_MCP_ARGS_PLAYWRIGHT` / `BROWSER_MCP_ARGS_DEVTOOLS` set the arguments of new entries.
 The agents' guide is in the image: `/usr/share/doc/multica-agent-runtime/GUIDE.md`.
 
 ## Caches
@@ -225,6 +244,8 @@ Nothing is baked in; the standard variables are read natively:
 | `NVIDIA_CDI_ARGS` | – | extra `nvidia-ctk cdi generate` flags |
 | `TTYD_PORT`, `TTYD_ARGS` | `7681` | web shell |
 | `CHROME_EXTRA_ARGS` | – | extra Chrome flags |
+| `BROWSER_MCP` | `1` | `0`: do not register the browser MCP servers for the agents |
+| `BROWSER_MCP_ARGS_PLAYWRIGHT`, `BROWSER_MCP_ARGS_DEVTOOLS` | see [Browser testing](#browser-testing) | arguments of newly registered browser MCP servers |
 
 Values equal to `CHANGEME` count as unset.
 

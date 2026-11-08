@@ -59,6 +59,34 @@ step "chrome (headless screenshot)"
 timeout 20 playwright-mcp --help >/dev/null || fail "playwright-mcp --help"
 timeout 20 chrome-devtools-mcp --help >/dev/null || fail "chrome-devtools-mcp --help"
 
+step "browser MCP servers registered for every agent"
+for f in "$HOME/.claude/.claude.json" "$HOME/.pi/agent/mcp.json" "$HOME/.omp/agent/mcp.json"; do
+  jq -e '.mcpServers | has("playwright") and has("chrome-devtools")' "$f" >/dev/null || fail "browser MCPs missing in $f"
+done
+[ "$(readlink "$HOME/.claude.json")" = "$HOME/.claude/.claude.json" ] || fail "$HOME/.claude.json not linked to $HOME/.claude/.claude.json"
+jq -e '.mcp | has("playwright") and has("chrome-devtools")' "$HOME/.config/opencode/opencode.json" >/dev/null \
+  || fail "browser MCPs missing in opencode.json"
+for n in playwright chrome-devtools; do
+  grep -qE "^\[mcp_servers\.(\"$n\"|$n)\]" "$HOME/.codex/config.toml" || fail "$n missing in codex config.toml"
+done
+# the CLIs read them (listing may connect to the servers, so only the names are checked)
+timeout 120 claude mcp list > "$OUT/claude-mcp-list.txt" 2>&1 || true
+grep -q playwright "$OUT/claude-mcp-list.txt" || fail "claude mcp list: no playwright ($OUT/claude-mcp-list.txt)"
+timeout 120 codex mcp list > "$OUT/codex-mcp-list.txt" 2>&1 || true
+grep -q chrome-devtools "$OUT/codex-mcp-list.txt" || fail "codex mcp list: no chrome-devtools ($OUT/codex-mcp-list.txt)"
+timeout 120 pi mcp list > "$OUT/pi-mcp-list.txt" 2>&1 || true
+grep -q playwright "$OUT/pi-mcp-list.txt" || fail "pi mcp list: no playwright ($OUT/pi-mcp-list.txt)"
+# own entries win, a second run changes nothing
+jq '.mcpServers.playwright.args = ["--own"]' "$HOME/.pi/agent/mcp.json" > "$OUT/pi-mcp.json"
+cp "$OUT/pi-mcp.json" "$HOME/.pi/agent/mcp.json"
+mcp_sums() {
+  sha256sum "$HOME/.claude/.claude.json" "$HOME/.pi/agent/mcp.json" "$HOME/.omp/agent/mcp.json" \
+    "$HOME/.config/opencode/opencode.json" "$HOME/.codex/config.toml"
+}
+before=$(mcp_sums)
+bash -c '. /usr/local/lib/multica-agent-runtime/common.sh; . /usr/local/lib/multica-agent-runtime/mcp.sh; register_browser_mcps'
+[ "$before" = "$(mcp_sums)" ] || fail "browser MCP registration not idempotent or overwrote an own entry"
+
 step "doctor"
 runtime-doctor
 
