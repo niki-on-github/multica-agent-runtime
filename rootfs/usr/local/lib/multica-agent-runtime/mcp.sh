@@ -25,24 +25,28 @@ browser_mcp_servers() {
     }'
 }
 
-# mcp_json_merge <file> <jq filter>: the filter gets the server map as $servers and must keep every
-# existing entry; written via a temp file and rename, so logins kept in the same file are never lost
+# mcp_json_merge <file> <key> <jq filter>: the filter gets the server map as $servers and must keep
+# every existing entry. A file whose <key> map has all names is not touched at all (the CLIs rewrite
+# their own files, a re-serialized copy would race with them); otherwise written via a temp file and
+# rename, so logins kept in the same file are never lost.
 mcp_json_merge() {
-  local file=$1 filter=$2 tmp
+  local file=$1 key=$2 filter=$3 tmp
   mkdir -p "$(dirname "$file")"
-  if [ -s "$file" ] && ! jq -e 'type == "object"' "$file" >/dev/null 2>&1; then
-    warn "browser MCP: $file is not a JSON object, left unchanged"
-    return 0
+  if [ -s "$file" ]; then
+    if ! jq -e 'type == "object"' "$file" >/dev/null 2>&1; then
+      warn "browser MCP: $file is not a JSON object, left unchanged"
+      return 0
+    fi
+    if jq -e --arg k "$key" --argjson servers "$BROWSER_MCP_SERVERS" \
+      '(.[$k] // {}) as $have | $servers | keys | all(. as $n | $have | has($n))' "$file" >/dev/null; then
+      return 0
+    fi
   fi
   tmp=$(mktemp "$file.XXXXXX")
   if { [ -s "$file" ] && cat "$file" || echo '{}'; } \
     | jq --argjson servers "$BROWSER_MCP_SERVERS" "$filter" > "$tmp"; then
-    if [ -f "$file" ] && cmp -s "$tmp" "$file"; then
-      rm -f "$tmp"
-    else
-      chmod 0600 "$tmp"
-      mv -f "$tmp" "$file"
-    fi
+    chmod 0600 "$tmp"
+    mv -f "$tmp" "$file"
   else
     rm -f "$tmp"
     warn "browser MCP: could not update $file"
@@ -55,7 +59,7 @@ MCP_SERVERS_FILTER='.mcpServers = ((.mcpServers // {}) as $have
   | $have + ($servers | with_entries(select(.key as $k | $have | has($k) | not)) | map_values($extra + .)))'
 mcp_register_mcpservers() {
   local file=$1 extra=${2:-'{}'}
-  mcp_json_merge "$file" "$extra as \$extra | $MCP_SERVERS_FILTER"
+  mcp_json_merge "$file" mcpServers "$extra as \$extra | $MCP_SERVERS_FILTER"
 }
 
 mcp_register_claude() {
@@ -75,7 +79,7 @@ mcp_register_claude() {
 }
 
 mcp_register_opencode() {
-  mcp_json_merge "${XDG_CONFIG_HOME:-$HOME/.config}/opencode/opencode.json" '
+  mcp_json_merge "${XDG_CONFIG_HOME:-$HOME/.config}/opencode/opencode.json" mcp '
     (if has("$schema") then . else {"$schema": "https://opencode.ai/config.json"} + . end)
     | .mcp = ((.mcp // {}) as $have
       | $have + ($servers
