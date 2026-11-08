@@ -11,15 +11,15 @@
 ARG VARIANT=cpu
 
 # Multica CLI/daemon: static Go binary of the backend image; its tag is the image version.
-FROM ghcr.io/multica-ai/multica-backend:v0.8.0@sha256:5e13e9ef8a2ee07e6768ae97a0a285bc5af735c520fe5b1a703fe6ced4b658e9 AS multica
+FROM ghcr.io/multica-ai/multica-backend:v0.8.1@sha256:864a97102959895b174f4fb1e2798bc38c896ea9ff33497564ec11eac5728374 AS multica
 # Nix: the official image ships a complete single-user store in /nix.
-FROM docker.io/nixos/nix:2.35.4@sha256:f159a58f390677f41e8e900a74b6e2f9c7f27b364122ae6acf7a652ce6c551c0 AS nix
+FROM docker.io/nixos/nix:2.35.5@sha256:9305de534abed691d0f569502a4962a3a072ea8e888502c453ecfe35ae182867 AS nix
 FROM docker.io/library/node:26.13.0-bookworm-slim@sha256:add5c17c14752c54d2f3d519ec46a3815684d41c33f198bcb09fb998f7dcbf68 AS node
 FROM ghcr.io/astral-sh/uv:0.13.7@sha256:96f40d3904aad8d0bd010539001d36c8e2188b981e1334471a90c4a1d93bb490 AS uv
 
 FROM docker.io/library/ubuntu:26.04@sha256:6a06111c3b0a8600feadb270aec771dc239bf407b25625f93f44ab00e11f4d3c AS base-cpu
 # keep both on the same Ubuntu release (the Docker apt repo follows the base's codename)
-FROM docker.io/nvidia/cuda:13.4.3-runtime-ubuntu26.04@sha256:83b873636b7ad03b418984f38f6b8a09e6f3c3a105d5cdab8088e998e8ed93f1 AS base-cuda
+FROM docker.io/nvidia/cuda:13.5.0-runtime-ubuntu26.04@sha256:c079a462f628b7e01e8efb9d4d12e5860f044ecece3397ab2dfaf4e8727de840 AS base-cuda
 
 # hadolint ignore=DL3006
 FROM base-${VARIANT}
@@ -156,13 +156,13 @@ WORKDIR /
 # @playwright/test brings the `playwright` CLI; @playwright/mcp pins its own playwright-core.
 # Browsers dir owned by the agent, so `playwright install <browser>` works at runtime.
 # renovate: datasource=npm depName=@playwright/test
-ARG PLAYWRIGHT_VERSION=1.64.1
+ARG PLAYWRIGHT_VERSION=1.65.0
 # renovate: datasource=npm depName=@playwright/mcp
 ARG PLAYWRIGHT_MCP_VERSION=0.0.84
 # renovate: datasource=npm depName=chrome-devtools-mcp
 ARG CHROME_DEVTOOLS_MCP_VERSION=1.12.0
 # renovate: datasource=npm depName=pnpm
-ARG PNPM_VERSION=12.16.1
+ARG PNPM_VERSION=12.18.0
 ENV PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright
 RUN npm install --global --prefix /usr/local --no-fund --no-audit \
     "@playwright/test@${PLAYWRIGHT_VERSION}" \
@@ -176,17 +176,17 @@ RUN npm install --global --prefix /usr/local --no-fund --no-audit \
 
 # --- Agent CLIs (change almost daily, so near the end) ---------------------------------------------
 # renovate: datasource=npm depName=@anthropic-ai/claude-code
-ARG CLAUDE_CODE_VERSION=2.1.318
+ARG CLAUDE_CODE_VERSION=2.1.319
 # renovate: datasource=npm depName=opencode-ai
 ARG OPENCODE_VERSION=1.19.5
 # renovate: datasource=npm depName=@openai/codex
-ARG CODEX_VERSION=0.166.0
+ARG CODEX_VERSION=0.167.0
 # renovate: datasource=npm depName=@earendil-works/pi-coding-agent
 ARG PI_VERSION=1.5.0
 # Oh My Pi: the npm package needs Bun, so the standalone release binary instead (~280 MB)
 # renovate-digest: depName=can1357/oh-my-pi
-ARG OMP_VERSION=v18.18.1
-ARG OMP_SHA256=2a75e16550676783b3bc8be0e06513478dd5881efc647954642ab30db8f9be06
+ARG OMP_VERSION=v18.18.2
+ARG OMP_SHA256=965cf6038d60603296e41e0cf874ca9116561531f7e296e97ee0a9f84c405e53
 # AGENTS: which CLIs to install (the Multica daemon registers one runtime per CLI it finds)
 ARG AGENTS="claude opencode codex pi omp"
 RUN pkgs=(); \
