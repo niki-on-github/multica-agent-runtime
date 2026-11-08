@@ -1,7 +1,7 @@
 # multica-agent-runtime
 
 Container images that run the [Multica](https://github.com/multica-ai/multica) agent daemon with
-**Claude Code**, **OpenCode**, **Codex** and **Pi**, made for Kubernetes: Docker-in-Docker (rootless or
+**Claude Code**, **OpenCode**, **Codex**, **Pi** and **Oh My Pi**, made for Kubernetes: Docker-in-Docker (rootless or
 rootful), a CUDA variant with GPU access for nested containers, Chrome for Testing + Playwright for
 browser tests, Nix with configurable caches, `gh` and `tea`, and a web terminal for the CLI logins.
 
@@ -40,7 +40,7 @@ at build time (e.g. `libasound2` → `libasound2t64`). Images are rebuilt on eve
 | | |
 |---|---|
 | Multica | `multica` CLI/daemon (copied from the official backend image) |
-| Agents | Claude Code, OpenCode, Codex, Pi (npm, pinned, auto-update off) |
+| Agents | Claude Code, OpenCode, Codex, Pi (npm), Oh My Pi (release binary); pinned, auto-update off |
 | Browser | Chrome for Testing at `/opt/google/chrome/chrome`, `@playwright/test`, Playwright MCP, chrome-devtools-mcp, xvfb |
 | Containers | Docker engine (rootless extras, buildx, compose), slirp4netns, fuse-overlayfs; cuda: nvidia-container-toolkit, nvtop |
 | Git | git, git-lfs, gh, tea, openssh-client |
@@ -103,6 +103,7 @@ Mount a volume at `/home/agent`: logins and CLI state live there and survive res
 | OpenCode | `opencode auth login` | provider config (`OPENCODE_CONFIG`) with an API key |
 | Codex | `codex login --device-auth` | `OPENAI_API_KEY` |
 | Pi | `pi` → `/login` in the web shell | provider API keys (e.g. `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`) |
+| Oh My Pi | `omp` → `/login` in the web shell | provider API keys (e.g. `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`) |
 | Multica | – | `MULTICA_TOKEN` (personal access token), re-applied on every start |
 | GitHub | – | `GH_TOKEN` (gh as git credential helper) |
 | Gitea | – | `GITEA_URL` + `GITEA_TOKEN` (`tea` login + git credential helper; `GITEA_USER` optional) |

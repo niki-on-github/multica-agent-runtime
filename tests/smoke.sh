@@ -26,12 +26,12 @@ grep -q '# local edit' "$HOME/.vimrc" || fail "seed overwrote an existing file"
 
 step "versions"
 jq . /etc/multica-agent-runtime/versions.json
-for k in multica claude-code opencode codex pi chrome playwright docker gh tea ttyd; do
+for k in multica claude-code opencode codex pi omp chrome playwright docker gh tea ttyd; do
   [ -n "$(jq -r --arg k "$k" '.[$k] // empty' /etc/multica-agent-runtime/versions.json)" ] || fail "no version for $k"
 done
 
 step "CLIs"
-for c in multica claude opencode codex pi gh tea git git-lfs vim tmux ttyd node npm pnpm uv uvx python3 \
+for c in multica claude opencode codex pi omp gh tea git git-lfs vim tmux ttyd node npm pnpm uv uvx python3 \
   jq yq rg fd docker playwright playwright-mcp chrome-devtools-mcp bwrap socat nix; do
   command -v "$c" >/dev/null || fail "$c not on PATH"
 done
@@ -40,6 +40,7 @@ claude --version
 opencode --version
 codex --version
 pi --version
+omp --version
 gh --version | head -n1
 tea --version
 bash -lc 'command -v nix && command -v claude' >/dev/null || fail "login shell PATH"

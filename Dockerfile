@@ -1,8 +1,8 @@
 # syntax=docker/dockerfile:1@sha256:4edf897a3ffa55b89f906fc8cc78afdb3f1834cc9c7083565e611a8a7d5fe99e
 # hadolint global ignore=DL3008,DL3016,DL4006,SC2016
 #
-# Multica agent runtime: the Multica daemon with Claude Code, OpenCode, Codex and Pi, Docker-in-Docker,
-# Nix, Chrome for Testing + Playwright, gh and tea. VARIANT picks the base:
+# Multica agent runtime: the Multica daemon with Claude Code, OpenCode, Codex, Pi and Oh My Pi,
+# Docker-in-Docker, Nix, Chrome for Testing + Playwright, gh and tea. VARIANT picks the base:
 #   cpu   Ubuntu 26.04
 #   cuda  nvidia/cuda runtime (same Ubuntu) + nvidia-container-toolkit for GPU containers inside
 # Layers go from rarely to often changing: apt, Docker, Chrome, Nix/Node, release binaries, browser
@@ -183,8 +183,12 @@ ARG OPENCODE_VERSION=1.19.5
 ARG CODEX_VERSION=0.166.0
 # renovate: datasource=npm depName=@earendil-works/pi-coding-agent
 ARG PI_VERSION=1.5.0
+# Oh My Pi: the npm package needs Bun, so the standalone release binary instead (~280 MB)
+# renovate-digest: depName=can1357/oh-my-pi
+ARG OMP_VERSION=v18.18.1
+ARG OMP_SHA256=2a75e16550676783b3bc8be0e06513478dd5881efc647954642ab30db8f9be06
 # AGENTS: which CLIs to install (the Multica daemon registers one runtime per CLI it finds)
-ARG AGENTS="claude opencode codex pi"
+ARG AGENTS="claude opencode codex pi omp"
 RUN pkgs=(); \
   for a in $AGENTS; do \
     case "$a" in \
@@ -192,10 +196,15 @@ RUN pkgs=(); \
       opencode) pkgs+=("opencode-ai@${OPENCODE_VERSION}") ;; \
       codex) pkgs+=("@openai/codex@${CODEX_VERSION}") ;; \
       pi) pkgs+=("@earendil-works/pi-coding-agent@${PI_VERSION}") ;; \
+      omp) \
+        curl -fsSL -o /tmp/omp "https://github.com/can1357/oh-my-pi/releases/download/${OMP_VERSION}/omp-linux-x64"; \
+        echo "${OMP_SHA256}  /tmp/omp" | sha256sum -c -; \
+        install -m 0755 /tmp/omp /usr/local/bin/omp; \
+        rm -f /tmp/omp ;; \
       *) echo "unknown agent: $a" >&2; exit 1 ;; \
     esac; \
   done; \
-  npm install --global --prefix /usr/local --no-fund --no-audit "${pkgs[@]}"; \
+  if [ "${#pkgs[@]}" -gt 0 ]; then npm install --global --prefix /usr/local --no-fund --no-audit "${pkgs[@]}"; fi; \
   npm cache clean --force
 
 COPY --from=multica /app/multica /usr/local/bin/multica
@@ -248,7 +257,7 @@ RUN set -eux; \
   test -r /etc/nix/nix.conf; \
   nix config show experimental-features | grep -q flakes; \
   nix eval --expr '1 + 1'; \
-  multica version; claude --version || true; command -v opencode codex pi claude || true; \
+  multica version; claude --version || true; command -v opencode codex pi omp claude || true; \
   rm -rf "$HOME"
 
 EXPOSE 7681
@@ -256,5 +265,5 @@ ENTRYPOINT ["/usr/bin/tini", "-g", "--", "/usr/local/bin/entrypoint.sh"]
 CMD ["daemon"]
 
 LABEL org.opencontainers.image.title="multica-agent-runtime" \
-      org.opencontainers.image.description="Multica agent daemon with Claude Code, OpenCode, Codex, Pi, Docker-in-Docker, Nix and Chrome" \
+      org.opencontainers.image.description="Multica agent daemon with Claude Code, OpenCode, Codex, Pi, Oh My Pi, Docker-in-Docker, Nix and Chrome" \
       org.opencontainers.image.licenses="MIT"

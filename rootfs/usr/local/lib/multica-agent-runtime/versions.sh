@@ -15,6 +15,7 @@ declare -A v=(
   [opencode]="$(first_line opencode --version)"
   [codex]="$(first_line codex --version)"
   [pi]="$(first_line pi --version)"
+  [omp]="$(first_line omp --version)"
   [node]="$(first_line node --version)"
   [npm]="$(first_line npm --version)"
   [pnpm]="$(first_line pnpm --version)"
