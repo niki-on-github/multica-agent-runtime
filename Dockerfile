@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1@sha256:4edf897a3ffa55b89f906fc8cc78afdb3f1834cc9c7083565e611a8a7d5fe99e
 # hadolint global ignore=DL3008,DL3016,DL4006,SC2016
 #
-# Multica agent runtime: the Multica daemon with Claude Code, OpenCode and Codex, Docker-in-Docker,
+# Multica agent runtime: the Multica daemon with Claude Code, OpenCode, Codex and Pi, Docker-in-Docker,
 # Nix, Chrome for Testing + Playwright, gh and tea. VARIANT picks the base:
 #   cpu   Ubuntu 26.04
 #   cuda  nvidia/cuda runtime (same Ubuntu) + nvidia-container-toolkit for GPU containers inside
@@ -181,14 +181,17 @@ ARG CLAUDE_CODE_VERSION=2.1.318
 ARG OPENCODE_VERSION=1.19.5
 # renovate: datasource=npm depName=@openai/codex
 ARG CODEX_VERSION=0.166.0
+# renovate: datasource=npm depName=@earendil-works/pi-coding-agent
+ARG PI_VERSION=1.5.0
 # AGENTS: which CLIs to install (the Multica daemon registers one runtime per CLI it finds)
-ARG AGENTS="claude opencode codex"
+ARG AGENTS="claude opencode codex pi"
 RUN pkgs=(); \
   for a in $AGENTS; do \
     case "$a" in \
       claude) pkgs+=("@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}") ;; \
       opencode) pkgs+=("opencode-ai@${OPENCODE_VERSION}") ;; \
       codex) pkgs+=("@openai/codex@${CODEX_VERSION}") ;; \
+      pi) pkgs+=("@earendil-works/pi-coding-agent@${PI_VERSION}") ;; \
       *) echo "unknown agent: $a" >&2; exit 1 ;; \
     esac; \
   done; \
@@ -245,7 +248,7 @@ RUN set -eux; \
   test -r /etc/nix/nix.conf; \
   nix config show experimental-features | grep -q flakes; \
   nix eval --expr '1 + 1'; \
-  multica version; claude --version || true; command -v opencode codex claude || true; \
+  multica version; claude --version || true; command -v opencode codex pi claude || true; \
   rm -rf "$HOME"
 
 EXPOSE 7681
@@ -253,5 +256,5 @@ ENTRYPOINT ["/usr/bin/tini", "-g", "--", "/usr/local/bin/entrypoint.sh"]
 CMD ["daemon"]
 
 LABEL org.opencontainers.image.title="multica-agent-runtime" \
-      org.opencontainers.image.description="Multica agent daemon with Claude Code, OpenCode, Codex, Docker-in-Docker, Nix and Chrome" \
+      org.opencontainers.image.description="Multica agent daemon with Claude Code, OpenCode, Codex, Pi, Docker-in-Docker, Nix and Chrome" \
       org.opencontainers.image.licenses="MIT"

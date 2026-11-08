@@ -53,9 +53,9 @@ multica-agent-runtime/
 
 **Agents and Multica**
 - `multica`: `COPY --from=ghcr.io/multica-ai/multica-backend:<tag>@sha256:… /app/multica`; the tag sets the image version
-- Claude Code (`@anthropic-ai/claude-code`), OpenCode (`opencode-ai`), Codex (`@openai/codex`): pinned npm
+- Claude Code (`@anthropic-ai/claude-code`), OpenCode (`opencode-ai`), Codex (`@openai/codex`), Pi (`@earendil-works/pi-coding-agent`): pinned npm
   ARGs, global prefix `/usr/local` *(impl: runtime installs of the agent go to `~/.local`)*, auto-update off (`DISABLE_AUTOUPDATER=1`, the daemon has
-  `MULTICA_DAEMON_AUTO_UPDATE=false`). `ARG AGENTS="claude opencode codex"` can drop one.
+  `MULTICA_DAEMON_AUTO_UPDATE=false`). `ARG AGENTS="claude opencode codex pi"` can drop one.
 - Browser MCPs preinstalled (no `npx` download at task time): `@playwright/mcp`, `chrome-devtools-mcp`
 - Chrome for Testing (Stable), pinned, installed to `/opt/google/chrome/chrome` (the default path of both MCPs),
   plus its system libs and `fonts-liberation`, `fonts-noto-color-emoji`

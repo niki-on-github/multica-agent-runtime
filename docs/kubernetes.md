@@ -43,7 +43,7 @@ the cluster exposes GPUs) with the `cuda` image. Several pods can share one GPU 
 
 | Mount | Volume | Notes |
 |---|---|---|
-| `/home/agent` | PVC, ~5 Gi | logins (Claude Code, OpenCode, Codex), CLI config: back it up |
+| `/home/agent` | PVC, ~5 Gi | logins (Claude Code, OpenCode, Codex, Pi), CLI config: back it up |
 | `/data` | PVC, large | workspaces, Docker data, caches; must be a real volume (no nested overlay) |
 | `/run/agent` | `emptyDir` | Docker socket shared by `app` and `shell` |
 | `/dev/shm` | `emptyDir` `medium: Memory`, `sizeLimit: 2Gi` | Chrome |

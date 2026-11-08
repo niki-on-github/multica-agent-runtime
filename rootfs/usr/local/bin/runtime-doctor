@@ -30,12 +30,12 @@ bad() { printf '  [FAIL] %s\n' "$*"; failed=1; }
 hint() { printf '         %s\n' "$*"; }
 
 section "image"
-jq -r '"  variant \(.variant), \(.multica), Claude Code \(."claude-code"), OpenCode \(.opencode), Codex \(.codex)"' \
+jq -r '"  variant \(.variant), \(.multica), Claude Code \(."claude-code"), OpenCode \(.opencode), Codex \(.codex), Pi \(.pi)"' \
   /etc/multica-agent-runtime/versions.json 2>/dev/null || bad "versions.json missing"
 printf '  uid %s, HOME %s\n' "$(id -u)" "$HOME"
 
 section "agent CLIs (one Multica runtime each)"
-for c in claude opencode codex; do
+for c in claude opencode codex pi; do
   if command -v "$c" >/dev/null; then ok "$c: $(command -v "$c")"; else no "$c not installed"; fi
 done
 
