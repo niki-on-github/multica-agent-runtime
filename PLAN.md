@@ -1,6 +1,6 @@
 # multica-agent-runtime: plan
 
-Container images that run the [Multica](https://github.com/multica-ai/multica) agent daemon with Claude Code
+Container images that run the [Multica](https://github.com/multica-ai/multica) agent daemon with Claude Code and Codex,
 built here with GitHub Actions and deployed to the `nixos-ai` cluster later (step 2).
 
 Status: step 1 implemented (images, CI, Renovate); not yet built on GitHub. Step 2 (cluster) open.
