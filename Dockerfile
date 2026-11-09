@@ -158,7 +158,7 @@ WORKDIR /
 # renovate: datasource=npm depName=@playwright/test
 ARG PLAYWRIGHT_VERSION=1.65.0
 # renovate: datasource=npm depName=@playwright/mcp
-ARG PLAYWRIGHT_MCP_VERSION=0.0.84
+ARG PLAYWRIGHT_MCP_VERSION=0.0.85
 # renovate: datasource=npm depName=chrome-devtools-mcp
 ARG CHROME_DEVTOOLS_MCP_VERSION=1.12.0
 # renovate: datasource=npm depName=pnpm
@@ -176,15 +176,15 @@ RUN npm install --global --prefix /usr/local --no-fund --no-audit \
 
 # --- Agent CLIs (change almost daily, so near the end) ---------------------------------------------
 # renovate: datasource=npm depName=@anthropic-ai/claude-code
-ARG CLAUDE_CODE_VERSION=2.1.319
+ARG CLAUDE_CODE_VERSION=2.1.321
 # renovate: datasource=npm depName=@openai/codex
 ARG CODEX_VERSION=0.167.0
 # renovate: datasource=npm depName=@earendil-works/pi-coding-agent
 ARG PI_VERSION=1.5.0
 # Oh My Pi: the npm package needs Bun, so the standalone release binary instead (~280 MB)
 # renovate-digest: depName=can1357/oh-my-pi
-ARG OMP_VERSION=v18.18.3
-ARG OMP_SHA256=8c9a178fed74ec1da21aafb7d28cd9839b3b0c9e7d607c86cc3b6177355729f4
+ARG OMP_VERSION=v18.18.4
+ARG OMP_SHA256=cb5bec642d332c7aca74aafb2165bcc9590dc9d4c9b601bd60c9e56f58319d15
 # AGENTS: which CLIs to install (the Multica daemon registers one runtime per CLI it finds)
 ARG AGENTS="claude codex pi omp"
 RUN pkgs=(); \
