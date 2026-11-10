@@ -66,7 +66,8 @@ under_roots() { # under_roots <path>: below one of AGENT_SANDBOX_ROOTS (not the 
 
 # --- environment --------------------------------------------------------------------------------
 declare -A pass=()
-for v in ${AGENT_SANDBOX_PASS_ENV//,/ }; do
+pass_list=${AGENT_SANDBOX_PASS_ENV:-}
+for v in ${pass_list//,/ }; do
   case "$v" in
     MULTICA_*) warn "AGENT_SANDBOX_PASS_ENV: $v refused (MULTICA_ variables are not passed through)" ;;
     *) pass[$v]=1 ;;
