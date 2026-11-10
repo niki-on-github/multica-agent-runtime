@@ -90,8 +90,13 @@ if [ "${SMOKE_DIND:-0}" = 1 ]; then
   S 'docker run -d --name sbx-web -p 127.0.0.1:18090:8080 smoke-web >/dev/null
      for _ in $(seq 30); do curl -fsS http://127.0.0.1:18090/ 2>/dev/null | grep -q "nested container" && exit 0; sleep 1; done
      exit 1' || fail "published port from inside the sandbox"
-  S 'timeout 90 /opt/google/chrome/chrome --headless=new --dump-dom http://127.0.0.1:18090/ 2>/dev/null | grep -q "nested container"' \
-    || fail "Chrome in the sandbox against the published port"
+  # same flags as the screenshot step of smoke.sh (--disable-gpu: a privileged container sees the
+  # host's /dev/dri); Chrome's stderr is kept for the log on failure
+  if ! S 'timeout 90 /opt/google/chrome/chrome --headless --disable-gpu --dump-dom http://127.0.0.1:18090/ \
+      >"$TMPDIR/chrome.out" 2>"$TMPDIR/chrome.err"; grep -q "nested container" "$TMPDIR/chrome.out"'; then
+    tail -n 30 /data/tmp/task1/chrome.err >&2 || true
+    fail "Chrome in the sandbox against the published port"
+  fi
   docker rm -f sbx-web >/dev/null
   (cd "$root/workdir" && env "${task_env[@]}" AGENT_SANDBOX_DOCKER=0 agent-sandbox bash -c 'docker info' >/dev/null 2>&1) \
     && fail "AGENT_SANDBOX_DOCKER=0 still has Docker"
