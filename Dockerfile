@@ -89,7 +89,7 @@ RUN if [ "$VARIANT" != cuda ]; then exit 0; fi; \
 # Chrome path /opt/google/chrome/chrome, so Playwright (channel "chrome") and chrome-devtools-mcp find
 # it without configuration. deb.deps in the archive lists the runtime libraries.
 # renovate: datasource=custom.chrome-for-testing depName=chrome-for-testing versioning=loose
-ARG CHROME_VERSION=157.0.8103.38
+ARG CHROME_VERSION=157.0.8103.50
 COPY rootfs/usr/local/lib/multica-agent-runtime/chrome-wrapper.sh /tmp/chrome-wrapper.sh
 RUN curl -fsSL -o /tmp/chrome.zip \
     "https://storage.googleapis.com/chrome-for-testing-public/${CHROME_VERSION}/linux64/chrome-linux64.zip"; \
@@ -180,11 +180,11 @@ ARG CLAUDE_CODE_VERSION=2.1.321
 # renovate: datasource=npm depName=@openai/codex
 ARG CODEX_VERSION=0.167.0
 # renovate: datasource=npm depName=@earendil-works/pi-coding-agent
-ARG PI_VERSION=1.5.0
+ARG PI_VERSION=1.5.1
 # Oh My Pi: the npm package needs Bun, so the standalone release binary instead (~280 MB)
 # renovate-digest: depName=can1357/oh-my-pi
-ARG OMP_VERSION=v18.18.4
-ARG OMP_SHA256=cb5bec642d332c7aca74aafb2165bcc9590dc9d4c9b601bd60c9e56f58319d15
+ARG OMP_VERSION=v18.18.6
+ARG OMP_SHA256=a8059b95de5eaba0b3fb6f7182842d661feae29cb2931cdbeba2986db4751ecb
 # AGENTS: which CLIs to install (the Multica daemon registers one runtime per CLI it finds)
 ARG AGENTS="claude codex pi omp"
 RUN pkgs=(); \
