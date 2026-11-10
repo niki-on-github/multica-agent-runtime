@@ -4,7 +4,7 @@
 # The entrypoint points MULTICA_{CLAUDE,CODEX,PI,OMP}_PATH at the shims in
 # /usr/local/lib/multica-agent-runtime/sandbox-bin (AGENT_SANDBOX=on|required); they exec this script.
 # The daemon starts it in the task's work directory with the task's environment, stdin/stdout carry
-# the agent protocol and pass through unchanged. See PLAN-sandbox.md.
+# the agent protocol and pass through unchanged. See README.md, "Task sandbox".
 #
 # Inside: the image (/usr /etc /opt /var ro, /nix rw), the task's own directory, $TMPDIR, the
 # per-agent home /data/agent-homes/<MULTICA_AGENT_ID> (= HOME, same path inside and outside, so

@@ -123,7 +123,7 @@ Without it, every task is a child of the daemon: same uid, same `HOME`, the daem
 environment (`GH_TOKEN`, API keys, …), the other tasks' directories and processes. With
 `AGENT_SANDBOX=on` the entrypoint points `MULTICA_{CLAUDE,CODEX,PI,OMP}_PATH` at shims that run each
 task's CLI through [`agent-sandbox`](rootfs/usr/local/bin/agent-sandbox) in bubblewrap. No Multica
-changes are needed. Design and test results: [PLAN-sandbox.md](PLAN-sandbox.md).
+changes are needed.
 
 | Inside the sandbox | |
 |---|---|
