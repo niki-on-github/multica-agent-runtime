@@ -176,7 +176,7 @@ RUN npm install --global --prefix /usr/local --no-fund --no-audit \
 
 # --- Agent CLIs (change almost daily, so near the end) ---------------------------------------------
 # renovate: datasource=npm depName=@anthropic-ai/claude-code
-ARG CLAUDE_CODE_VERSION=2.1.321
+ARG CLAUDE_CODE_VERSION=2.1.322
 # renovate: datasource=npm depName=@openai/codex
 ARG CODEX_VERSION=0.167.0
 # renovate: datasource=npm depName=@earendil-works/pi-coding-agent
