@@ -1,0 +1,3 @@
+#!/bin/sh
+# MULTICA_OMP_PATH target: runs omp inside the per-task sandbox (agent-sandbox)
+exec /usr/local/bin/agent-sandbox omp "$@"

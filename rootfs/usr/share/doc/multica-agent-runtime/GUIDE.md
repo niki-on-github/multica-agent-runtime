@@ -13,6 +13,12 @@ You run inside a container of the Multica agent runtime. This page is what you c
 | `/data/tmp`, `/tmp` | scratch | no |
 | `/nix/store` | Nix packages you add | no (comes back fast through the cache) |
 
+**Task sandbox** (`doctor` shows `AGENT_SANDBOX`; when active, `$HOME` is `/data/agent-homes/<id>`):
+you see only this task's directory, `$TMPDIR`, your agent's own home and the repo cache, not other
+tasks or the runner home. Secret variables are only there if the operator passed them. `/tmp` is
+private to you: for files a Docker container should mount, use the work dir or `$TMPDIR`, not `/tmp`.
+Containers you start keep running after the task; remove them (`docker rm -f`).
+
 You are uid 1000 (`agent`) without sudo. Install things for yourself:
 
 - any tool: `nix shell nixpkgs#go nixpkgs#terraform -c ...` (or `nix profile install nixpkgs#foo`)

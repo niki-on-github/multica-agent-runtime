@@ -4,6 +4,7 @@ Container images that run the [Multica](https://github.com/multica-ai/multica) a
 built here with GitHub Actions and deployed to the `nixos-ai` cluster later (step 2).
 
 Status: step 1 implemented (images, CI, Renovate); not yet built on GitHub. Step 2 (cluster) open.
+Per-task sandbox (bubblewrap): see [PLAN-sandbox.md](PLAN-sandbox.md).
 Deviations found while implementing are marked *(impl)*.
 
 ## 1. Variants and tags

@@ -110,7 +110,7 @@ jobs:
             --tmpfs /home/agent:uid=1000,gid=1000,exec \
             -v smoke-rootful:/data \
             -v "$PWD/tests:/tests:ro" -v "$PWD/out/rootful:/out" \
-            -e DIND_MODE=rootful -e SMOKE_DIND=1 -e SMOKE_OUT=/out \
+            -e DIND_MODE=rootful -e SMOKE_DIND=1 -e SMOKE_SANDBOX=1 -e SMOKE_OUT=/out \
             agent-runtime:test /tests/smoke.sh
 
       # unprivileged uid 1000 with what the cluster pod gets (see docs/kubernetes.md)
@@ -125,7 +125,7 @@ jobs:
             --tmpfs /home/agent:uid=1000,gid=1000,exec \
             -v smoke-rootless:/data \
             -v "$PWD/tests:/tests:ro" -v "$PWD/out/rootless:/out" \
-            -e DIND_MODE=auto -e SMOKE_DIND=1 -e SMOKE_OUT=/out \
+            -e DIND_MODE=auto -e SMOKE_DIND=1 -e SMOKE_SANDBOX=1 -e SMOKE_OUT=/out \
             agent-runtime:test /tests/smoke.sh
 
       - name: Upload smoke test output

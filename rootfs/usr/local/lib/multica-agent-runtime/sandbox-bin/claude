@@ -1,0 +1,3 @@
+#!/bin/sh
+# MULTICA_CLAUDE_PATH target: runs claude inside the per-task sandbox (agent-sandbox)
+exec /usr/local/bin/agent-sandbox claude "$@"

@@ -1,0 +1,3 @@
+#!/bin/sh
+# MULTICA_PI_PATH target: runs pi inside the per-task sandbox (agent-sandbox)
+exec /usr/local/bin/agent-sandbox pi "$@"

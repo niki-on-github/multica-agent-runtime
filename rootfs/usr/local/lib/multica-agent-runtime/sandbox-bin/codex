@@ -1,0 +1,3 @@
+#!/bin/sh
+# MULTICA_CODEX_PATH target: runs codex inside the per-task sandbox (agent-sandbox)
+exec /usr/local/bin/agent-sandbox codex "$@"

@@ -117,6 +117,40 @@ redirect, copy that URL and run `curl '<url>'` in the web shell.
 `CLAUDE_CONFIG_DIR=$HOME/.claude` keeps all Claude Code state in one directory. Optional SSH keys:
 mount them at `/etc/agent-ssh` (copied to `~/.ssh` with mode 600).
 
+## Task sandbox
+
+Without it, every task is a child of the daemon: same uid, same `HOME`, the daemon's whole
+environment (`GH_TOKEN`, API keys, …), the other tasks' directories and processes. With
+`AGENT_SANDBOX=on` the entrypoint points `MULTICA_{CLAUDE,CODEX,PI,OMP}_PATH` at shims that run each
+task's CLI through [`agent-sandbox`](rootfs/usr/local/bin/agent-sandbox) in bubblewrap. No Multica
+changes are needed. Design and test results: [PLAN-sandbox.md](PLAN-sandbox.md).
+
+| Inside the sandbox | |
+|---|---|
+| the task's own directory, `$TMPDIR`, the repo cache of its Multica workspace | rw, same paths |
+| `HOME=/data/agent-homes/<agent id>` | per agent, persistent (session resume, caches), seeded like the runner home |
+| `/home/agent/.claude` | the per-agent `.claude`; this task's `projects/<cwd>` transcripts are the runner's (the daemon checks them for resume) |
+| logins of this CLI: Claude `.credentials.json`, Codex `auth.json`, Pi/omp `auth.json` | rw (token refresh), `models.*` ro |
+| `/usr`, `/etc`, `/opt`, `/var` ro, `/nix` rw, Docker socket, GPU device nodes | shared |
+| own `/tmp`, `/dev/shm`, `/run`, PID/IPC/UTS namespaces | private |
+
+Not inside: the daemon and other processes, the runner home, other tasks' directories, and
+**variables whose name looks secret** (`*TOKEN*`, `*SECRET*`, `*API_KEY*`, `*PASSW*`, `*_KEY`, …).
+Pass the ones a task needs with `AGENT_SANDBOX_PASS_ENV`: runner-wide in the pod env, per agent in the
+agent's custom env (they add up). Typical: `CLAUDE_CODE_OAUTH_TOKEN` (Claude needs no file and no
+refresh then), the provider key Pi's `models.json` names (e.g. `LLM_API_KEY`), `GH_TOKEN` for
+agents that push. `MULTICA_*` cannot be passed; the task-scoped `MULTICA_TOKEN` is always there, the
+daemon's own never.
+
+Docker works as before, but it is **not** an isolation boundary: a container can mount any path of
+the pod. Bind mounts of the work dir, `$HOME` and `$TMPDIR` work, `/tmp` inside the sandbox is
+private (`docker run -v /tmp/x` mounts the pod's `/tmp`). `AGENT_SANDBOX_DOCKER=0` (agent custom env)
+takes the socket away from that agent.
+
+`AGENT_SANDBOX=required` refuses to start the daemon when bwrap cannot create namespaces (the pod
+needs the same settings as rootless Docker); `on` then runs unsandboxed with a warning. `doctor`
+shows the state.
+
 ## Docker-in-Docker
 
 Real `dockerd`, listening on `DOCKER_HOST=unix:///run/agent/docker.sock`, data in
@@ -242,6 +276,10 @@ Nothing is baked in; the standard variables are read natively:
 | `NVIDIA_CDI_ARGS` | – | extra `nvidia-ctk cdi generate` flags |
 | `TTYD_PORT`, `TTYD_ARGS` | `7681` | web shell |
 | `CHROME_EXTRA_ARGS` | – | extra Chrome flags |
+| `AGENT_SANDBOX` | `off` | `on` / `required`: each task's CLI in bubblewrap, see [Task sandbox](#task-sandbox) |
+| `AGENT_SANDBOX_PASS_ENV` | – | secret-looking variables passed into the sandbox (comma separated) |
+| `AGENT_SANDBOX_DOCKER` | `1` | `0`: no Docker socket in the sandbox |
+| `AGENT_SANDBOX_HOMES`, `AGENT_SANDBOX_ROOTS` | `/data/agent-homes`, `/data` | per-agent homes; allowed roots for task paths |
 | `BROWSER_MCP` | `1` | `0`: do not register the browser MCP servers for the agents |
 | `BROWSER_MCP_ARGS_PLAYWRIGHT`, `BROWSER_MCP_ARGS_DEVTOOLS` | see [Browser testing](#browser-testing) | arguments of newly registered browser MCP servers |
 
@@ -259,7 +297,9 @@ example Deployment with the daemon and the web shell.
 - `rootfs/`: entrypoint, libraries, doctor, skeleton, Nix config, agent guide
 - `tests/smoke.sh`: run by CI as the image command in three setups (plain, rootful, rootless); with
   Docker it builds a web image, runs it, and tests it with Playwright in Chrome (screenshots are
-  uploaded as artifacts); the cuda job also builds a CUDA image
+  uploaded as artifacts); the cuda job also builds a CUDA image. In the two Docker setups
+  `tests/sandbox.sh` checks the task sandbox against a simulated task (isolation, env filter,
+  refusals, probes, cancellation, Docker from inside)
 - `.github/workflows/build.yml`: matrix `cpu`/`cuda`, build → smoke tests → push (main only)
 - Renovate (`renovate.json`) updates everything (base images, Multica, agent CLIs, Chrome, Docker,
   NVIDIA toolkit, release binaries, actions, majors included) in **one PR** ("all dependencies"),

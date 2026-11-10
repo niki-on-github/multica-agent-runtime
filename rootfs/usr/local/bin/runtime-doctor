@@ -68,6 +68,19 @@ printf '  seccomp %s, AppArmor %s, no_new_privs %s, userns %s (%s ids), /proc ma
   "$(in_userns && echo yes || echo no)" "$(userns_size)" \
   "$(proc_masked && echo yes || echo no)" "$([ -c /dev/net/tun ] && echo yes || echo no)"
 
+section "task sandbox"
+# shellcheck source=SCRIPTDIR/../lib/multica-agent-runtime/sandbox.sh
+. "$LIB/sandbox.sh"
+printf '  AGENT_SANDBOX %s, active for: %s, %s\n' "${AGENT_SANDBOX:-off}" "${AGENT_SANDBOX_ACTIVE:-none}" "$(bwrap --version 2>/dev/null)"
+if out=$(sandbox_preflight); then ok "bwrap can create user, pid, ipc and uts namespaces"
+elif [ "${AGENT_SANDBOX:-off}" = off ]; then no "bwrap cannot create namespaces here: $out"
+else bad "bwrap cannot create namespaces here: $out"; fi
+homes=${AGENT_SANDBOX_HOMES:-/data/agent-homes}
+if [ -d "$homes" ]; then
+  ok "per-agent homes in $homes: $(find "$homes" -mindepth 1 -maxdepth 1 -type d | wc -l), $(du -sh "$homes" 2>/dev/null | cut -f1)"
+fi
+printf '  pass-through: %s\n' "${AGENT_SANDBOX_PASS_ENV:-none}"
+
 section "GPU"
 if command -v nvidia-smi >/dev/null && nvidia-smi -L >/dev/null 2>&1; then
   nvidia-smi -L | sed 's/^/  [ok]   /'

@@ -49,6 +49,12 @@ the cluster exposes GPUs) with the `cuda` image. Several pods can share one GPU 
 | `/dev/shm` | `emptyDir` `medium: Memory`, `sizeLimit: 2Gi` | Chrome |
 | `/tmp` | `emptyDir` | scratch |
 
+With `AGENT_SANDBOX=on` the per-agent homes live in `/data/agent-homes` (session state and caches, no
+backup needed; the logins stay in `/home/agent`). The sandbox needs no other pod settings than rootless
+Docker (user namespaces, unmasked `/proc`, seccomp/AppArmor `Unconfined`). Set
+`AGENT_SANDBOX_PASS_ENV` to the secrets tasks need, e.g. `CLAUDE_CODE_OAUTH_TOKEN,LLM_API_KEY`; see
+the README.
+
 ## Example (rootless)
 
 ```yaml

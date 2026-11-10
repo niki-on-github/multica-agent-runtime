@@ -1,0 +1,274 @@
+#!/usr/bin/env bash
+# agent-sandbox <cli> [args...]: runs an agent CLI for one Multica task inside bubblewrap.
+#
+# The entrypoint points MULTICA_{CLAUDE,CODEX,PI,OMP}_PATH at the shims in
+# /usr/local/lib/multica-agent-runtime/sandbox-bin (AGENT_SANDBOX=on|required); they exec this script.
+# The daemon starts it in the task's work directory with the task's environment, stdin/stdout carry
+# the agent protocol and pass through unchanged. See PLAN-sandbox.md.
+#
+# Inside: the image (/usr /etc /opt /var ro, /nix rw), the task's own directory, $TMPDIR, the
+# per-agent home /data/agent-homes/<MULTICA_AGENT_ID> (= HOME, same path inside and outside, so
+# Docker bind mounts of $HOME work), the session stores and logins of this CLI at the paths the daemon
+# uses, the repo cache of the Multica workspace and the Docker socket. Not inside: the daemon and other
+# processes, the runner home (/home/agent), other tasks' directories, secret-looking variables.
+#
+#   AGENT_SANDBOX_PASS_ENV   comma/space separated variables passed although they look secret
+#                            (runner-wide in the pod env, per agent in the agent's custom env)
+#   AGENT_SANDBOX_DOCKER     0: no Docker socket in the sandbox (default 1)
+#   AGENT_SANDBOX_HOMES      parent of the per-agent homes (default /data/agent-homes)
+#   AGENT_SANDBOX_ROOTS      allowed roots for task paths (default /data)
+#   AGENT_SANDBOX_DEBUG      1: print the bwrap call (no values) to stderr
+set -euo pipefail
+
+die() { printf 'agent-sandbox: %s\n' "$*" >&2; exit 1; }
+warn() { printf 'agent-sandbox: WARN: %s\n' "$*" >&2; }
+
+[ $# -ge 1 ] || die "usage: agent-sandbox <cli> [args...]"
+cli=$1
+shift
+
+LIB=/usr/local/lib/multica-agent-runtime
+SHIM_DIR=$LIB/sandbox-bin
+RUNNER_HOME=${HOME:-/home/agent}
+HOMES=${AGENT_SANDBOX_HOMES:-/data/agent-homes}
+ROOTS=${AGENT_SANDBOX_ROOTS:-/data}
+WS_ROOT=${MULTICA_TASK_WORKSPACES_ROOT:-${MULTICA_WORKSPACES_ROOT:-/data/workspaces}}
+CWD=$(pwd -P)
+
+# --- the real CLI (never a shim) ---------------------------------------------------------------
+path_wo_shims=$(tr ':' '\n' <<<"$PATH" | grep -vxF "$SHIM_DIR" | paste -sd:)
+real=$(PATH=$path_wo_shims command -v -- "$cli") || die "$cli not found on PATH"
+real=$(readlink -f -- "$real")
+case "$real" in "$SHIM_DIR"/* | /usr/local/bin/agent-sandbox) die "$cli resolves to a shim" ;; esac
+
+# --- task or probe ------------------------------------------------------------------------------
+# Version and model probes run from an empty temp dir without the task environment.
+task_mode=0
+if [ -n "${MULTICA_TASK_ID:-}" ]; then
+  task_mode=1
+  agent=${MULTICA_AGENT_ID:-}
+  [[ $agent =~ ^[A-Za-z0-9_-]{1,128}$ ]] || die "MULTICA_AGENT_ID missing or not [A-Za-z0-9_-]"
+  ws_id=${MULTICA_WORKSPACE_ID:-}
+  [ -z "$ws_id" ] || [[ $ws_id =~ ^[A-Za-z0-9_-]{1,128}$ ]] || die "MULTICA_WORKSPACE_ID not [A-Za-z0-9_-]"
+  home=$HOMES/$agent
+else
+  home=$RUNNER_HOME # a tmpfs inside the sandbox, nothing persists
+fi
+
+under_roots() { # under_roots <path>: below one of AGENT_SANDBOX_ROOTS (not the root itself)
+  local p=$1 r
+  for r in $ROOTS; do
+    r=${r%/}
+    [[ $p == "$r"/?* ]] && return 0
+  done
+  return 1
+}
+
+# --- environment --------------------------------------------------------------------------------
+declare -A pass=()
+for v in ${AGENT_SANDBOX_PASS_ENV//,/ }; do
+  case "$v" in
+    MULTICA_*) warn "AGENT_SANDBOX_PASS_ENV: $v refused (MULTICA_ variables are not passed through)" ;;
+    *) pass[$v]=1 ;;
+  esac
+done
+secret_re='(TOKEN|SECRET|PASSW|PRIVATE|CREDENTIAL|COOKIE|API_?KEY|ACCESS_?KEY|AUTH_?KEY|_KEY$|^KEY$|_PAT$)'
+envv=()
+while IFS= read -r -d '' kv; do
+  name=${kv%%=*}
+  value=${kv#*=}
+  case "$name" in
+    HOME | PWD | OLDPWD | SHLVL | _ | AGENT_SANDBOX_* | DOCKER_HOST) continue ;;
+    MULTICA_TOKEN)
+      # the task-scoped token only; the daemon's own token (probes) stays out
+      if [ "$task_mode" = 1 ] && [[ $value == mat_* ]]; then envv+=("$kv"); fi
+      continue
+      ;;
+  esac
+  if [[ ${name^^} =~ $secret_re ]] && [ -z "${pass[$name]:-}" ]; then
+    continue
+  fi
+  envv+=("$kv")
+done < <(env -0)
+envv+=("HOME=$home")
+
+# --- mounts -------------------------------------------------------------------------------------
+args=(--die-with-parent --unshare-pid --unshare-ipc --unshare-uts --unshare-cgroup-try --new-session
+  --ro-bind /usr /usr --ro-bind /etc /etc --ro-bind /opt /opt --ro-bind /var /var --bind /nix /nix
+  --symlink usr/bin /bin --symlink usr/sbin /sbin --symlink usr/lib /lib --symlink usr/lib64 /lib64
+  --proc /proc --dev /dev --ro-bind /sys /sys
+  --tmpfs /dev/shm --tmpfs /tmp --tmpfs /var/tmp --tmpfs /run
+  --tmpfs "$RUNNER_HOME")
+[ -n "${XDG_RUNTIME_DIR:-}" ] && args+=(--dir "$XDG_RUNTIME_DIR")
+
+bound=()
+is_bound() { # is_bound <path>: at or below a path already bound
+  local p=$1 b
+  for b in "${bound[@]}"; do
+    [[ $p == "$b" || $p == "$b"/* ]] && return 0
+  done
+  return 1
+}
+bind() { # bind rw|ro <src> [dst]: same path unless dst is given
+  local mode=$1 src=$2 dst=${3:-$2}
+  is_bound "$dst" && [ "$dst" = "$src" ] && return 0
+  if [ "$mode" = ro ]; then args+=(--ro-bind "$src" "$dst"); else args+=(--bind "$src" "$dst"); fi
+  bound+=("$dst")
+}
+bind_task_path() { # bind_task_path <path>: a task path below AGENT_SANDBOX_ROOTS, refused otherwise
+  local p
+  p=$(readlink -f -- "$1") || die "cannot resolve $1"
+  under_roots "$p" || die "refusing $p: not below AGENT_SANDBOX_ROOTS ($ROOTS)"
+  [ -e "$p" ] || mkdir -p -- "$p"
+  bind rw "$p"
+}
+
+# per-agent home (task) or a throwaway home (probe)
+if [ "$task_mode" = 1 ]; then
+  mkdir -p "$HOMES"
+  (
+    # shellcheck source=SCRIPTDIR/../lib/multica-agent-runtime/common.sh
+    . "$LIB/common.sh"
+    # shellcheck source=SCRIPTDIR/../lib/multica-agent-runtime/mcp.sh
+    . "$LIB/mcp.sh"
+    flock -w 30 9 || warn "home lock busy, continuing"
+    install -d -m 0700 "$home"
+    cp -r --preserve=mode,timestamps --update=none /etc/agent-skel/. "$home/"
+    mkdir -p "$home/.claude" "$home/.config" "$home/.cache" "$home/.local/bin"
+    # browser MCPs in the user config of every CLI, as the entrypoint does for the runner home
+    HOME=$home CLAUDE_CONFIG_DIR=$home/.claude CODEX_HOME=$home/.codex register_browser_mcps
+  ) 9>"$home.lock" >/dev/null 2>&1 || warn "per-agent home setup incomplete ($home)"
+  bind rw "$home"
+fi
+
+# Claude: CLAUDE_CONFIG_DIR stays /home/agent/.claude (the path the daemon resolves), backed by the
+# per-agent .claude; this task's transcript dir is the runner's, at the same path (session resume)
+claude_dir=${CLAUDE_CONFIG_DIR:-$RUNNER_HOME/.claude}
+if [ "$claude_dir" = "$RUNNER_HOME/.claude" ]; then
+  if [ "$task_mode" = 1 ]; then
+    args+=(--bind "$home/.claude" "$claude_dir")
+  else
+    args+=(--dir "$claude_dir")
+  fi
+  if [ "$task_mode" = 1 ] && [ "$cli" = claude ]; then
+    slug=${CWD//[^A-Za-z0-9]/-} # Claude Code's projects/<encoded cwd> (Multica: encodeClaudeCwd)
+    mkdir -p "$claude_dir/projects/$slug"
+    args+=(--bind "$claude_dir/projects/$slug" "$claude_dir/projects/$slug")
+  fi
+  # file login (refreshed by Claude itself, so rw), unless a token is passed through the env
+  if [ "$cli" = claude ] && [ -s "$claude_dir/.credentials.json" ] && [ -z "${pass[CLAUDE_CODE_OAUTH_TOKEN]:-}" ]; then
+    args+=(--bind "$claude_dir/.credentials.json" "$claude_dir/.credentials.json")
+  fi
+elif [ -d "$claude_dir" ]; then
+  bind_task_path "$claude_dir"
+fi
+
+if [ "$task_mode" = 1 ]; then
+  # the task's own directory: <workspaces>/<workspace>/<task>/workdir -> the task root (codex-home,
+  # settings, MCP config, output files live next to the work dir)
+  root=$CWD
+  if [ "$(basename "$CWD")" = workdir ] && [[ $CWD == "$WS_ROOT"/*/*/workdir ]]; then
+    root=$(dirname "$CWD")
+  fi
+  bind_task_path "$root"
+  bind_task_path "$CWD"
+  [ -z "${TMPDIR:-}" ] || bind_task_path "$TMPDIR"
+  [ -z "${MULTICA_TASK_CONFIG_ROOT:-}" ] || bind_task_path "$MULTICA_TASK_CONFIG_ROOT"
+  [ -z "${CODEX_HOME:-}" ] || bind_task_path "$CODEX_HOME"
+  # repo cache of this Multica workspace: worktrees made by `multica repo checkout` point into it
+  if [ -n "$ws_id" ]; then
+    mkdir -p "$WS_ROOT/.repos/$ws_id"
+    bind rw "$WS_ROOT/.repos/$ws_id"
+  fi
+else
+  # probe: the empty temp dir the daemon chose; anything else is not exposed
+  case "$CWD" in
+    /tmp/?*) bind rw "$CWD" ;;
+    *) if under_roots "$CWD"; then bind rw "$CWD"; else CWD=/; fi ;;
+  esac
+fi
+
+# Codex: the per-task CODEX_HOME links auth.json and the session store into the runner's ~/.codex
+if [ -n "${CODEX_HOME:-}" ] && [ -d "$CODEX_HOME" ]; then
+  while IFS= read -r -d '' link; do
+    t=$(readlink -f -- "$link") || continue
+    [ -e "$t" ] || continue
+    is_bound "$t" && continue
+    case "$t" in
+      "$RUNNER_HOME"/.codex/* | "$RUNNER_HOME"/.multica/*) ;;
+      *) under_roots "$t" || continue ;;
+    esac
+    case "$t" in
+      */auth.json | */multica-sessions/*) bind rw "$t" ;;
+      *) bind ro "$t" ;;
+    esac
+  done < <(find "$CODEX_HOME" -maxdepth 2 -type l -print0 2>/dev/null)
+fi
+
+# Pi / omp: provider config from the runner home (ro), login rw (refresh), into this HOME
+for d in .pi/agent .omp/agent; do
+  for f in models.json models.yml auth.json; do
+    src=$RUNNER_HOME/$d/$f
+    [ -e "$src" ] || continue
+    if [ "$f" = auth.json ]; then mode=rw; else mode=ro; fi
+    if [ "$task_mode" = 1 ]; then
+      mkdir -p "$home/$d"
+      [ -e "$home/$d/$f" ] || : >"$home/$d/$f"
+    fi
+    bind "$mode" "$src" "$home/$d/$f"
+  done
+done
+
+# a CLI installed into the runner home at runtime (npm prefix ~/.local)
+if [[ $real == "$RUNNER_HOME"/.local/* ]]; then
+  bind ro "$RUNNER_HOME/.local"
+fi
+
+# paths in the arguments: MCP config, settings, extension and skill dirs the daemon writes into its
+# own temp dir, Pi's --session file below ~/.multica. A file inside a daemon temp dir binds that dir.
+bind_arg_path() {
+  local p=$1 rest top
+  case "$p" in
+    /tmp/?*)
+      rest=${p#/tmp/}
+      top=/tmp/${rest%%/*}
+      [ -e "$top" ] || return 0
+      bind rw "$top"
+      ;;
+    "$RUNNER_HOME"/.multica/?* | /data/?*)
+      is_bound "$p" && return 0
+      if [ -d "$p" ]; then
+        bind rw "$p"
+      else
+        mkdir -p -- "$(dirname "$p")" 2>/dev/null || return 0
+        is_bound "$(dirname "$p")" || bind rw "$(dirname "$p")"
+      fi
+      ;;
+  esac
+}
+for a in "$@"; do
+  [[ $a == /* ]] && bind_arg_path "$a"
+  if [[ $a == -*=/* ]]; then bind_arg_path "${a#*=}"; fi
+done
+
+# Docker: the one daemon of the pod (isolation between tasks is not a goal)
+sock=${DOCKER_HOST:-unix://${XDG_RUNTIME_DIR:-/run/agent}/docker.sock}
+sock=${sock#unix://}
+if [ "${AGENT_SANDBOX_DOCKER:-1}" != 0 ] && [ -S "$sock" ]; then
+  args+=(--bind "$sock" "$sock")
+  envv+=("DOCKER_HOST=unix://$sock")
+fi
+
+# GPU device nodes (cuda image); nested containers get the GPU through dockerd and CDI anyway
+for dev in /dev/nvidia* /dev/dri; do
+  [ -e "$dev" ] && args+=(--dev-bind "$dev" "$dev")
+done
+
+args+=(--chdir "$CWD")
+if [ "${AGENT_SANDBOX_DEBUG:-0}" = 1 ]; then
+  printf 'agent-sandbox: env: %s\n' "$(printf '%s\n' "${envv[@]%%=*}" | sort | paste -sd' ')" >&2
+  printf 'agent-sandbox: bwrap %s -- %s\n' "${args[*]}" "$real" >&2
+fi
+# env -i: bwrap and its pid 1 inside start with the filtered environment only, so nothing else can be
+# read from /proc/1/environ inside the sandbox
+exec env -i "${envv[@]}" bwrap "${args[@]}" -- "$real" "$@"

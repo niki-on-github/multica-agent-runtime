@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Entrypoint of multica-agent-runtime, started by `tini -g` (signals reach dockerd and the main process).
 #
-#   daemon (default)  Multica daemon in the foreground; Docker per DIND_MODE (default auto)
+#   daemon (default)  Multica daemon in the foreground; Docker per DIND_MODE (default auto); agent
+#                     CLIs per task in bubblewrap per AGENT_SANDBOX (default off, see sandbox.sh)
 #   shell             web terminal (ttyd) on $TTYD_PORT: login shell, `?arg=tmux` for the tmux
 #                     session `main`; uses an existing
 #                     Docker daemon (the daemon container of the same pod), never starts one
@@ -27,6 +28,8 @@ LIB=/usr/local/lib/multica-agent-runtime
 . "$LIB/gpu.sh"
 # shellcheck source=SCRIPTDIR/../lib/multica-agent-runtime/mcp.sh
 . "$LIB/mcp.sh"
+# shellcheck source=SCRIPTDIR/../lib/multica-agent-runtime/sandbox.sh
+. "$LIB/sandbox.sh"
 
 cmd=${1:-daemon}
 case "$cmd" in
@@ -81,6 +84,7 @@ run_daemon() {
   if ! is_set MULTICA_SERVER_URL; then
     warn "MULTICA_SERVER_URL is not set: the CLI uses its default server"
   fi
+  setup_sandbox
   multica version || true
   # registers the token and the workspaces it can see in $HOME/.multica
   multica login --token "$MULTICA_TOKEN"

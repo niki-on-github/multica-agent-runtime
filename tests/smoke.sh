@@ -115,5 +115,12 @@ if [ "${SMOKE_DIND:-0}" = 1 ]; then
   fi
 fi
 
+if [ "${SMOKE_SANDBOX:-0}" = 1 ]; then
+  /tests/sandbox.sh
+else
+  step "sandbox (not tested in this run)"
+  bwrap --ro-bind / / --unshare-pid --proc /proc --dev /dev true 2>&1 || true
+fi
+
 echo
-echo "smoke test passed ($VARIANT, Docker ${DIND_ACTIVE_MODE:-off})"
+echo "smoke test passed ($VARIANT, Docker ${DIND_ACTIVE_MODE:-off}, sandbox ${SMOKE_SANDBOX:-0})"
