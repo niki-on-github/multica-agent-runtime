@@ -37,7 +37,7 @@ blocked() { if S "$1" >/dev/null 2>&1; then fail "reachable from the sandbox: $1
 step "isolation"
 env FAKE_DAEMON=1 sleep 3299 &
 fake_daemon=$!
-blocked "pgrep -f 'sleep 3299'"
+blocked "pgrep -f 'slee[p] 3299'" # the bracket keeps the pattern from matching this command itself
 kill "$fake_daemon"
 blocked "grep -qa gh-secret /proc/1/environ /proc/self/environ"
 blocked '[ -n "${GH_TOKEN:-}${LLM_API_KEY:-}" ]'
