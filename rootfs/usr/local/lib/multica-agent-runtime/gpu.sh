@@ -13,7 +13,10 @@ gpu_setup() {
   if [ "$(id -u)" = 0 ]; then
     dir=/etc/cdi
   else
-    [ -s /etc/cdi/nvidia.yaml ] && return 0
+    if [ -s /etc/cdi/nvidia.yaml ]; then
+      agent_env GPU_CDI_SPEC /etc/cdi/nvidia.yaml
+      return 0
+    fi
     dir="$XDG_RUNTIME_DIR/cdi"
   fi
   mkdir -p "$dir"
@@ -24,7 +27,10 @@ gpu_setup() {
     gpu_cdi_drop_overflow_ids "$dir/nvidia.yaml"
     gpu_cdi_add_nix_deps "$dir/nvidia.yaml"
     log "GPU: CDI spec $dir/nvidia.yaml"
+    [ "$(id -u)" = 0 ] || agent_env GPU_CDI_SPEC "$dir/nvidia.yaml"
   else
+    rm -f "$dir/nvidia.yaml"
+    [ "$(id -u)" = 0 ] || agent_env GPU_CDI_SPEC failed
     warn "GPU: nvidia-ctk cdi generate failed, see $XDG_RUNTIME_DIR/nvidia-cdi.log (NVIDIA_CDI_ARGS)"
   fi
 }

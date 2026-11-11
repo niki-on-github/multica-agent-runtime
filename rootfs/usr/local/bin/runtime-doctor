@@ -73,11 +73,15 @@ section "task sandbox"
 . "$LIB/sandbox.sh"
 printf '  AGENT_SANDBOX %s, active for: %s, %s\n' "${AGENT_SANDBOX:-off}" "${AGENT_SANDBOX_ACTIVE:-none}" "$(bwrap --version 2>/dev/null)"
 if out=$(sandbox_preflight); then ok "bwrap can create user, pid, ipc and uts namespaces"
+elif [ "${AGENT_SANDBOX_PREFLIGHT:-}" = ok ]; then
+  # e.g. the web shell's container: masked /proc, default seccomp. Tasks run in the daemon's container.
+  ok "the daemon's container passed the bwrap check at start (tasks run there)"
+  no "not usable in this container: $out"
 elif [ "${AGENT_SANDBOX:-off}" = off ]; then no "bwrap cannot create namespaces here: $out"
 else bad "bwrap cannot create namespaces here: $out"; fi
 homes=${AGENT_SANDBOX_HOMES:-/data/agent-homes}
 if [ -d "$homes" ]; then
-  ok "per-agent homes in $homes: $(find "$homes" -mindepth 1 -maxdepth 1 -type d | wc -l), $(du -sh "$homes" 2>/dev/null | cut -f1)"
+  ok "per-agent homes in $homes: $(find "$homes" -mindepth 1 -maxdepth 1 -type d | wc -l) (created on an agent's first task), $(du -sh "$homes" 2>/dev/null | cut -f1)"
 fi
 printf '  pass-through: %s\n' "${AGENT_SANDBOX_PASS_ENV:-none}"
 
@@ -86,7 +90,10 @@ if command -v nvidia-smi >/dev/null && nvidia-smi -L >/dev/null 2>&1; then
   nvidia-smi -L | sed 's/^/  [ok]   /'
   spec=
   for f in /etc/cdi/nvidia.yaml "$XDG_RUNTIME_DIR/cdi/nvidia.yaml"; do [ -s "$f" ] && spec=$f; done
-  if [ -n "$spec" ]; then ok "CDI spec $spec"; else bad "no CDI spec (see $XDG_RUNTIME_DIR/nvidia-cdi.log)"; fi
+  if [ -n "$spec" ]; then ok "CDI spec $spec"
+  elif [ -n "${GPU_CDI_SPEC:-}" ] && [ "$GPU_CDI_SPEC" != failed ]; then
+    ok "CDI spec $GPU_CDI_SPEC in the daemon's container (not visible in this one)"
+  else bad "no CDI spec (see $XDG_RUNTIME_DIR/nvidia-cdi.log)"; fi
   if (( gpu_test )); then
     img="docker.io/nvidia/cuda:${CUDA_VERSION:-13.4.3}-base-ubuntu26.04"
     if out=$(docker run --rm --device nvidia.com/gpu=all "$img" nvidia-smi -L 2>&1); then ok "nested container sees: $out"
@@ -126,7 +133,10 @@ printf '  /dev/shm %s MiB%s\n' "$(( ${shm_kb:-0} / 1024 ))" "$([ "${shm_kb:-0}" 
 section "caches"
 check_url() {
   local name=$1 url=$2
-  if curl -fsS -o /dev/null -m 5 "$url" 2>/dev/null; then ok "$name $url"; else bad "$name $url not reachable"; fi
+  local code
+  # any HTTP answer counts (e.g. olah answers 404 on /): only no connection or TLS is a failure
+  code=$(curl -sS -o /dev/null -w '%{http_code}' -m 5 "$url" 2>/dev/null) || code=000
+  if [ "$code" != 000 ]; then ok "$name $url${code:+ (HTTP $code)}"; else bad "$name $url not reachable"; fi
 }
 subs=$(printf '%s\n' "${NIX_CONFIG:-}" | sed -nE 's/^[[:space:]]*extra-substituters[[:space:]]*=[[:space:]]*//p' | tr ' ' '\n' | sed '/^$/d')
 if [ -n "$subs" ]; then

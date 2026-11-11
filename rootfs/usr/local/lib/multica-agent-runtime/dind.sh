@@ -183,6 +183,18 @@ dind_wait() {
   return 1
 }
 
+# A dockerd stopped in the middle of creating its default bridge can leave two docker0 networks in its
+# network store; every later start then fails ("networks have same bridge name"). The store only holds
+# network definitions, which dockerd (bridge) and compose (project networks) create again: it is moved
+# aside, so the caller can start once more.
+dind_reset_network_store() {
+  local db=$1/network/files/local-kv.db
+  grep -q 'networks have same bridge name' "$DIND_LOG" 2>/dev/null || return 1
+  [ -f "$db" ] || return 1
+  mv "$db" "$db.broken-$(date -u +%Y%m%dT%H%M%S)" || return 1
+  warn "Docker: duplicate default bridge in the network store, moved $db aside, starting again"
+}
+
 # container started as root: resolve the mode, fit the subordinate ids, start a rootful daemon
 dind_root_phase() {
   dind_resolve
@@ -219,7 +231,15 @@ dind_agent_phase() {
     rootless)
       dind_prepare
       dind_start_rootless
-      dind_wait || active=failed
+      if ! dind_wait; then
+        if dind_reset_network_store "$DIND_DATA_ROOT/rootless"; then
+          dind_clean_state
+          dind_start_rootless
+          dind_wait || active=failed
+        else
+          active=failed
+        fi
+      fi
       ;;
   esac
   if [ "$active" != failed ] && [ "$active" != off ] && dind_ping; then

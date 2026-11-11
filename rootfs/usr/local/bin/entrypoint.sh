@@ -72,7 +72,11 @@ setup_ca_env
   setup_git || warn "git/tea setup incomplete"
   register_browser_mcps || warn "browser MCP registration incomplete"
 ) 9>"$XDG_RUNTIME_DIR/setup.lock"
-gpu_setup
+# the CDI spec is for this container's dockerd; the shell container uses the daemon container's
+case "$DIND_MODE" in
+  external | off) ;;
+  *) gpu_setup ;;
+esac
 dind_agent_phase
 
 run_daemon() {

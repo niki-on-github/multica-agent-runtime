@@ -44,6 +44,8 @@ setup_sandbox() {
     active+=("$cli")
   done
   mkdir -p "${AGENT_SANDBOX_HOMES:-/data/agent-homes}"
+  # runtime-doctor in the shell container (masked /proc, no bwrap) reads this from agent.env
+  agent_env AGENT_SANDBOX_PREFLIGHT ok
   agent_env AGENT_SANDBOX_ACTIVE "${active[*]:-none}"
   log "sandbox: ${active[*]:-no CLI} in bubblewrap per task (homes ${AGENT_SANDBOX_HOMES:-/data/agent-homes}, pass-through: ${AGENT_SANDBOX_PASS_ENV:-none})"
 }
