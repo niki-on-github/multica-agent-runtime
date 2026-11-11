@@ -183,8 +183,8 @@ ARG CODEX_VERSION=0.167.1
 ARG PI_VERSION=1.5.2
 # Oh My Pi: the npm package needs Bun, so the standalone release binary instead (~280 MB)
 # renovate-digest: depName=can1357/oh-my-pi
-ARG OMP_VERSION=v18.18.7
-ARG OMP_SHA256=ea6c216feb260a3766a591760aad06bdc608efd5c632912603f5ccb41b0a4bb1
+ARG OMP_VERSION=v18.18.8
+ARG OMP_SHA256=bfb7a85cceade6e5580fad59ff87570b4de50039b0428ed30339cf4286bd052f
 # AGENTS: which CLIs to install (the Multica daemon registers one runtime per CLI it finds)
 ARG AGENTS="claude codex pi omp"
 RUN pkgs=(); \
