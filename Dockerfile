@@ -17,7 +17,7 @@ FROM docker.io/nixos/nix:2.35.6@sha256:b49cb33f3a7e5cf3933ad8774529de0e3807ec5cf
 FROM docker.io/library/node:26.13.1-bookworm-slim@sha256:5df79989ed685e09f0a98019db4cebfb22fb9df1a53c0161664a011f7ff6b0f1 AS node
 FROM ghcr.io/astral-sh/uv:0.13.7@sha256:96f40d3904aad8d0bd010539001d36c8e2188b981e1334471a90c4a1d93bb490 AS uv
 
-FROM docker.io/library/ubuntu:26.04@sha256:6a06111c3b0a8600feadb270aec771dc239bf407b25625f93f44ab00e11f4d3c AS base-cpu
+FROM docker.io/library/ubuntu:26.04@sha256:065aa8626841f16057b78b027b464cd59c4fac36c204c72dcbf48d66f5fa8a96 AS base-cpu
 # keep both on the same Ubuntu release (the Docker apt repo follows the base's codename)
 FROM docker.io/nvidia/cuda:13.5.0-runtime-ubuntu26.04@sha256:c079a462f628b7e01e8efb9d4d12e5860f044ecece3397ab2dfaf4e8727de840 AS base-cuda
 
