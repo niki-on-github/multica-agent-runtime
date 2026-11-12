@@ -14,7 +14,7 @@ ARG VARIANT=cpu
 FROM ghcr.io/multica-ai/multica-backend:v0.8.2@sha256:74e7bdddef780b925652f4518f18f54ab790bdfe1ec7803b4dac2019ee2525be AS multica
 # Nix: the official image ships a complete single-user store in /nix.
 FROM docker.io/nixos/nix:2.35.6@sha256:b49cb33f3a7e5cf3933ad8774529de0e3807ec5cf54987aa7ccdfb49f2fc55ed AS nix
-FROM docker.io/library/node:26.13.0-bookworm-slim@sha256:add5c17c14752c54d2f3d519ec46a3815684d41c33f198bcb09fb998f7dcbf68 AS node
+FROM docker.io/library/node:26.13.1-bookworm-slim@sha256:5df79989ed685e09f0a98019db4cebfb22fb9df1a53c0161664a011f7ff6b0f1 AS node
 FROM ghcr.io/astral-sh/uv:0.13.7@sha256:96f40d3904aad8d0bd010539001d36c8e2188b981e1334471a90c4a1d93bb490 AS uv
 
 FROM docker.io/library/ubuntu:26.04@sha256:6a06111c3b0a8600feadb270aec771dc239bf407b25625f93f44ab00e11f4d3c AS base-cpu
@@ -89,7 +89,7 @@ RUN if [ "$VARIANT" != cuda ]; then exit 0; fi; \
 # Chrome path /opt/google/chrome/chrome, so Playwright (channel "chrome") and chrome-devtools-mcp find
 # it without configuration. deb.deps in the archive lists the runtime libraries.
 # renovate: datasource=custom.chrome-for-testing depName=chrome-for-testing versioning=loose
-ARG CHROME_VERSION=157.0.8103.50
+ARG CHROME_VERSION=157.0.8103.78
 COPY rootfs/usr/local/lib/multica-agent-runtime/chrome-wrapper.sh /tmp/chrome-wrapper.sh
 RUN curl -fsSL -o /tmp/chrome.zip \
     "https://storage.googleapis.com/chrome-for-testing-public/${CHROME_VERSION}/linux64/chrome-linux64.zip"; \
@@ -178,13 +178,13 @@ RUN npm install --global --prefix /usr/local --no-fund --no-audit \
 # renovate: datasource=npm depName=@anthropic-ai/claude-code
 ARG CLAUDE_CODE_VERSION=2.1.322
 # renovate: datasource=npm depName=@openai/codex
-ARG CODEX_VERSION=0.167.1
+ARG CODEX_VERSION=0.167.2
 # renovate: datasource=npm depName=@earendil-works/pi-coding-agent
 ARG PI_VERSION=1.5.2
 # Oh My Pi: the npm package needs Bun, so the standalone release binary instead (~280 MB)
 # renovate-digest: depName=can1357/oh-my-pi
-ARG OMP_VERSION=v18.18.8
-ARG OMP_SHA256=bfb7a85cceade6e5580fad59ff87570b4de50039b0428ed30339cf4286bd052f
+ARG OMP_VERSION=v18.18.9
+ARG OMP_SHA256=942a0c59a13a2eccffceab551e73ca9a5a148d69ae6320b7bfa1a7a130aafad3
 # AGENTS: which CLIs to install (the Multica daemon registers one runtime per CLI it finds)
 ARG AGENTS="claude codex pi omp"
 RUN pkgs=(); \
