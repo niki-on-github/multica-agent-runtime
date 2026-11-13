@@ -156,7 +156,7 @@ WORKDIR /
 # @playwright/test brings the `playwright` CLI; @playwright/mcp pins its own playwright-core.
 # Browsers dir owned by the agent, so `playwright install <browser>` works at runtime.
 # renovate: datasource=npm depName=@playwright/test
-ARG PLAYWRIGHT_VERSION=1.65.0
+ARG PLAYWRIGHT_VERSION=1.65.1
 # renovate: datasource=npm depName=@playwright/mcp
 ARG PLAYWRIGHT_MCP_VERSION=0.0.85
 # renovate: datasource=npm depName=chrome-devtools-mcp
@@ -176,7 +176,7 @@ RUN npm install --global --prefix /usr/local --no-fund --no-audit \
 
 # --- Agent CLIs (change almost daily, so near the end) ---------------------------------------------
 # renovate: datasource=npm depName=@anthropic-ai/claude-code
-ARG CLAUDE_CODE_VERSION=2.1.323
+ARG CLAUDE_CODE_VERSION=2.1.325
 # renovate: datasource=npm depName=@openai/codex
 ARG CODEX_VERSION=0.169.0
 # renovate: datasource=npm depName=@earendil-works/pi-coding-agent
