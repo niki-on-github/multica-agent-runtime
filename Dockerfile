@@ -11,7 +11,7 @@
 ARG VARIANT=cpu
 
 # Multica CLI/daemon: static Go binary of the backend image; its tag is the image version.
-FROM ghcr.io/multica-ai/multica-backend:v0.8.2@sha256:74e7bdddef780b925652f4518f18f54ab790bdfe1ec7803b4dac2019ee2525be AS multica
+FROM ghcr.io/multica-ai/multica-backend:v0.9.0@sha256:116dac15820ee71aef085bc0448b8839fd6f3dee93a3c989f08559e6f0d66bcd AS multica
 # Nix: the official image ships a complete single-user store in /nix.
 FROM docker.io/nixos/nix:2.35.6@sha256:b49cb33f3a7e5cf3933ad8774529de0e3807ec5cf54987aa7ccdfb49f2fc55ed AS nix
 FROM docker.io/library/node:26.13.1-bookworm-slim@sha256:5df79989ed685e09f0a98019db4cebfb22fb9df1a53c0161664a011f7ff6b0f1 AS node
@@ -178,7 +178,7 @@ RUN npm install --global --prefix /usr/local --no-fund --no-audit \
 # renovate: datasource=npm depName=@anthropic-ai/claude-code
 ARG CLAUDE_CODE_VERSION=2.1.323
 # renovate: datasource=npm depName=@openai/codex
-ARG CODEX_VERSION=0.168.0
+ARG CODEX_VERSION=0.169.0
 # renovate: datasource=npm depName=@earendil-works/pi-coding-agent
 ARG PI_VERSION=1.5.2
 # Oh My Pi: the npm package needs Bun, so the standalone release binary instead (~280 MB)
