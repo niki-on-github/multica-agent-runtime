@@ -162,7 +162,7 @@ ARG PLAYWRIGHT_MCP_VERSION=0.0.85
 # renovate: datasource=npm depName=chrome-devtools-mcp
 ARG CHROME_DEVTOOLS_MCP_VERSION=1.13.0
 # renovate: datasource=npm depName=pnpm
-ARG PNPM_VERSION=12.18.0
+ARG PNPM_VERSION=12.21.0
 ENV PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright
 RUN npm install --global --prefix /usr/local --no-fund --no-audit \
     "@playwright/test@${PLAYWRIGHT_VERSION}" \
