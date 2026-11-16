@@ -17,7 +17,7 @@ FROM docker.io/nixos/nix:2.35.6@sha256:b49cb33f3a7e5cf3933ad8774529de0e3807ec5cf
 FROM docker.io/library/node:26.13.1-bookworm-slim@sha256:5df79989ed685e09f0a98019db4cebfb22fb9df1a53c0161664a011f7ff6b0f1 AS node
 FROM ghcr.io/astral-sh/uv:0.13.8@sha256:5cc1805e2426484abca4ad46ea783bab281fdb225fd82d8ce6d66a81254bac85 AS uv
 
-FROM docker.io/library/ubuntu:26.04@sha256:065aa8626841f16057b78b027b464cd59c4fac36c204c72dcbf48d66f5fa8a96 AS base-cpu
+FROM docker.io/library/ubuntu:26.04@sha256:d66b366dac61b575bee2aef07e9c26e8070096fbe84a3d4d3eb0da069b5d76db AS base-cpu
 # keep both on the same Ubuntu release (the Docker apt repo follows the base's codename)
 FROM docker.io/nvidia/cuda:13.5.0-runtime-ubuntu26.04@sha256:c079a462f628b7e01e8efb9d4d12e5860f044ecece3397ab2dfaf4e8727de840 AS base-cuda
 
@@ -183,8 +183,8 @@ ARG CODEX_VERSION=0.169.0
 ARG PI_VERSION=1.5.2
 # Oh My Pi: the npm package needs Bun, so the standalone release binary instead (~280 MB)
 # renovate-digest: depName=can1357/oh-my-pi
-ARG OMP_VERSION=v18.20.2
-ARG OMP_SHA256=f34cfa57311ed67a45f01bb1a21519cad4d74875d181316f00fa0cd6a4abcaaa
+ARG OMP_VERSION=v18.20.3
+ARG OMP_SHA256=f34ec9b0f0c368f1937701e2fe111b3c29a7cf53314a642448b3c6cf2925d85a
 # AGENTS: which CLIs to install (the Multica daemon registers one runtime per CLI it finds)
 ARG AGENTS="claude codex pi omp"
 RUN pkgs=(); \
