@@ -11,7 +11,7 @@
 ARG VARIANT=cpu
 
 # Multica CLI/daemon: static Go binary of the backend image; its tag is the image version.
-FROM ghcr.io/multica-ai/multica-backend:v0.9.0@sha256:116dac15820ee71aef085bc0448b8839fd6f3dee93a3c989f08559e6f0d66bcd AS multica
+FROM ghcr.io/multica-ai/multica-backend:v0.10.0@sha256:fd321dfb1ce5836ee91554c701ba76aed9cde322ba9d2c7a7a4b786667e98242 AS multica
 # Nix: the official image ships a complete single-user store in /nix.
 FROM docker.io/nixos/nix:2.35.6@sha256:b49cb33f3a7e5cf3933ad8774529de0e3807ec5cf54987aa7ccdfb49f2fc55ed AS nix
 FROM docker.io/library/node:26.13.1-bookworm-slim@sha256:5df79989ed685e09f0a98019db4cebfb22fb9df1a53c0161664a011f7ff6b0f1 AS node
@@ -48,7 +48,7 @@ RUN apt-get update; \
 
 # --- Docker engine (rootful + rootless) -------------------------------------------------------------
 # renovate: datasource=github-releases depName=moby/moby extractVersion=^docker-v(?<version>.+)$
-ARG DOCKER_VERSION=29.9.3
+ARG DOCKER_VERSION=29.10.0
 RUN . /etc/os-release; \
   curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc; \
   echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu ${VERSION_CODENAME} stable" \
@@ -183,8 +183,8 @@ ARG CODEX_VERSION=0.169.0
 ARG PI_VERSION=1.5.2
 # Oh My Pi: the npm package needs Bun, so the standalone release binary instead (~280 MB)
 # renovate-digest: depName=can1357/oh-my-pi
-ARG OMP_VERSION=v18.20.3
-ARG OMP_SHA256=f34ec9b0f0c368f1937701e2fe111b3c29a7cf53314a642448b3c6cf2925d85a
+ARG OMP_VERSION=v18.21.0
+ARG OMP_SHA256=b00bd7ecdf7ad24d103ea56850969c9a8cc050527e1b9db64c25bbbf13fbedcc
 # AGENTS: which CLIs to install (the Multica daemon registers one runtime per CLI it finds)
 ARG AGENTS="claude codex pi omp"
 RUN pkgs=(); \
