@@ -63,7 +63,7 @@ RUN . /etc/os-release; \
 
 # --- NVIDIA container toolkit (cuda only): GPU access for nested containers ------------------------
 # renovate: datasource=github-releases depName=NVIDIA/nvidia-container-toolkit extractVersion=^v(?<version>.+)$
-ARG NVIDIA_CTK_VERSION=1.20.1
+ARG NVIDIA_CTK_VERSION=1.20.2
 RUN if [ "$VARIANT" != cuda ]; then exit 0; fi; \
   curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey \
     | gpg --dearmor -o /etc/apt/keyrings/nvidia-container-toolkit.gpg; \
