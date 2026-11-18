@@ -89,7 +89,7 @@ RUN if [ "$VARIANT" != cuda ]; then exit 0; fi; \
 # Chrome path /opt/google/chrome/chrome, so Playwright (channel "chrome") and chrome-devtools-mcp find
 # it without configuration. deb.deps in the archive lists the runtime libraries.
 # renovate: datasource=custom.chrome-for-testing depName=chrome-for-testing versioning=loose
-ARG CHROME_VERSION=157.0.8103.78
+ARG CHROME_VERSION=158.0.8127.36
 COPY rootfs/usr/local/lib/multica-agent-runtime/chrome-wrapper.sh /tmp/chrome-wrapper.sh
 RUN curl -fsSL -o /tmp/chrome.zip \
     "https://storage.googleapis.com/chrome-for-testing-public/${CHROME_VERSION}/linux64/chrome-linux64.zip"; \
@@ -124,8 +124,8 @@ RUN ln -s ../lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm; \
 
 # --- Release binaries: gh, tea, ttyd ---------------------------------------------------------------
 # renovate-digest: depName=cli/cli
-ARG GH_VERSION=v2.104.0
-ARG GH_SHA256=98cb101ad87dbbd3f6b2f2bfcbd43197ccd07643140121d8a9cfaa91eadbc24e
+ARG GH_VERSION=v2.105.0
+ARG GH_SHA256=79e7ab5db738c48777b696e374f8b428f0647debfb424f44d2f426370407fe2f
 # renovate-digest: depName=tsl0922/ttyd
 ARG TTYD_VERSION=1.7.7
 ARG TTYD_SHA256=8a217c968aba172e0dbf3f34447218dc015bc4d5e59bf51db2f2cd12b7be4f55
@@ -176,15 +176,15 @@ RUN npm install --global --prefix /usr/local --no-fund --no-audit \
 
 # --- Agent CLIs (change almost daily, so near the end) ---------------------------------------------
 # renovate: datasource=npm depName=@anthropic-ai/claude-code
-ARG CLAUDE_CODE_VERSION=2.1.326
+ARG CLAUDE_CODE_VERSION=2.1.327
 # renovate: datasource=npm depName=@openai/codex
-ARG CODEX_VERSION=0.169.0
+ARG CODEX_VERSION=0.169.1
 # renovate: datasource=npm depName=@earendil-works/pi-coding-agent
 ARG PI_VERSION=1.5.2
 # Oh My Pi: the npm package needs Bun, so the standalone release binary instead (~280 MB)
 # renovate-digest: depName=can1357/oh-my-pi
-ARG OMP_VERSION=v18.22.0
-ARG OMP_SHA256=f706b27ba845834d8f8360705a2e9ba1534f3593fa24411d41358272de33642b
+ARG OMP_VERSION=v18.22.2
+ARG OMP_SHA256=80a692c5adb9c71124bb11e77bd7edb3cf8fbbab6980db3206dcb6a4cb2905b5
 # AGENTS: which CLIs to install (the Multica daemon registers one runtime per CLI it finds)
 ARG AGENTS="claude codex pi omp"
 RUN pkgs=(); \
