@@ -178,7 +178,7 @@ RUN npm install --global --prefix /usr/local --no-fund --no-audit \
 # renovate: datasource=npm depName=@anthropic-ai/claude-code
 ARG CLAUDE_CODE_VERSION=2.1.327
 # renovate: datasource=npm depName=@openai/codex
-ARG CODEX_VERSION=0.169.1
+ARG CODEX_VERSION=0.170.0
 # renovate: datasource=npm depName=@earendil-works/pi-coding-agent
 ARG PI_VERSION=1.5.2
 # Oh My Pi: the npm package needs Bun, so the standalone release binary instead (~280 MB)
