@@ -11,7 +11,7 @@
 ARG VARIANT=cpu
 
 # Multica CLI/daemon: static Go binary of the backend image; its tag is the image version.
-FROM ghcr.io/multica-ai/multica-backend:v0.11.0@sha256:099fd0d1eea8fc4cf03254c6dff86f7de206662ff71db8dc9a78e66726dd65a4 AS multica
+FROM ghcr.io/multica-ai/multica-backend:v0.11.1@sha256:49db0b3d2b1a711fd92c440fd564c79d85a660f59b834bc6917382c86c1e32f7 AS multica
 # Nix: the official image ships a complete single-user store in /nix.
 FROM docker.io/nixos/nix:2.35.6@sha256:b49cb33f3a7e5cf3933ad8774529de0e3807ec5cf54987aa7ccdfb49f2fc55ed AS nix
 FROM docker.io/library/node:26.13.1-bookworm-slim@sha256:5df79989ed685e09f0a98019db4cebfb22fb9df1a53c0161664a011f7ff6b0f1 AS node
