@@ -1,4 +1,4 @@
-# syntax=docker/dockerfile:1@sha256:4edf897a3ffa55b89f906fc8cc78afdb3f1834cc9c7083565e611a8a7d5fe99e
+# syntax=docker/dockerfile:1@sha256:572cebbc2b15e6f84c077742952674889cb63cd5e9b80abdffcbe587b6f19183
 # hadolint global ignore=DL3008,DL3016,DL4006,SC2016
 #
 # Multica agent runtime: the Multica daemon with Claude Code, Codex, Pi and Oh My Pi,
@@ -180,7 +180,7 @@ ARG CLAUDE_CODE_VERSION=2.1.329
 # renovate: datasource=npm depName=@openai/codex
 ARG CODEX_VERSION=0.171.0
 # renovate: datasource=npm depName=@earendil-works/pi-coding-agent
-ARG PI_VERSION=1.5.2
+ARG PI_VERSION=1.6.0
 # Oh My Pi: the npm package needs Bun, so the standalone release binary instead (~280 MB)
 # renovate-digest: depName=can1357/oh-my-pi
 ARG OMP_VERSION=v19.0.1
