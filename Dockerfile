@@ -13,7 +13,7 @@ ARG VARIANT=cpu
 # Multica CLI/daemon: static Go binary of the backend image; its tag is the image version.
 FROM ghcr.io/multica-ai/multica-backend:v0.11.1@sha256:49db0b3d2b1a711fd92c440fd564c79d85a660f59b834bc6917382c86c1e32f7 AS multica
 # Nix: the official image ships a complete single-user store in /nix.
-FROM docker.io/nixos/nix:2.35.6@sha256:b49cb33f3a7e5cf3933ad8774529de0e3807ec5cf54987aa7ccdfb49f2fc55ed AS nix
+FROM docker.io/nixos/nix:2.36.0@sha256:746280551ddc1c72177d1a597c05eacac86dfaa18d5d649bf86411278bcd5470 AS nix
 FROM docker.io/library/node:26.13.1-bookworm-slim@sha256:5df79989ed685e09f0a98019db4cebfb22fb9df1a53c0161664a011f7ff6b0f1 AS node
 FROM ghcr.io/astral-sh/uv:0.13.9@sha256:d3b601f0c7b118bc1753febf7c41cc80981df678445e0254284eecf84db79a7d AS uv
 
@@ -176,15 +176,15 @@ RUN npm install --global --prefix /usr/local --no-fund --no-audit \
 
 # --- Agent CLIs (change almost daily, so near the end) ---------------------------------------------
 # renovate: datasource=npm depName=@anthropic-ai/claude-code
-ARG CLAUDE_CODE_VERSION=2.1.328
+ARG CLAUDE_CODE_VERSION=2.1.329
 # renovate: datasource=npm depName=@openai/codex
-ARG CODEX_VERSION=0.170.0
+ARG CODEX_VERSION=0.171.0
 # renovate: datasource=npm depName=@earendil-works/pi-coding-agent
 ARG PI_VERSION=1.5.2
 # Oh My Pi: the npm package needs Bun, so the standalone release binary instead (~280 MB)
 # renovate-digest: depName=can1357/oh-my-pi
-ARG OMP_VERSION=v19.0.0
-ARG OMP_SHA256=c7cc5c8d505053c8ffaf180417e5d5c781235b9d936f286810560151120109bf
+ARG OMP_VERSION=v19.0.1
+ARG OMP_SHA256=6ceef04430851bb1050c6fda3af467412eb44a11df0a6ff8121fe601013c5415
 # AGENTS: which CLIs to install (the Multica daemon registers one runtime per CLI it finds)
 ARG AGENTS="claude codex pi omp"
 RUN pkgs=(); \
