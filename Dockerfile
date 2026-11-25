@@ -11,7 +11,7 @@
 ARG VARIANT=cpu
 
 # Multica CLI/daemon: static Go binary of the backend image; its tag is the image version.
-FROM ghcr.io/multica-ai/multica-backend:v0.12.1@sha256:97bc0e3e7127061249b063aeeef1a6c3c3b65ac8a371465ae589f9545bc583e3 AS multica
+FROM ghcr.io/multica-ai/multica-backend:v0.13.0@sha256:ff3ce6c2356b4c938f9827a0753df212f36e38c9543dd83d3aabbadc4ee28c9f AS multica
 # Nix: the official image ships a complete single-user store in /nix.
 FROM docker.io/nixos/nix:2.36.0@sha256:746280551ddc1c72177d1a597c05eacac86dfaa18d5d649bf86411278bcd5470 AS nix
 FROM docker.io/library/node:26.13.1-bookworm-slim@sha256:0042e17d232a87a2cd485be1da7900fca4d10a4ad11b29e9285da1d2e54798c9 AS node
@@ -184,11 +184,11 @@ ARG CODEX_VERSION=0.172.0
 # renovate: datasource=npm depName=@opencode/cli
 ARG OPENCODE_VERSION=2.4.1
 # renovate: datasource=npm depName=@earendil-works/pi-coding-agent
-ARG PI_VERSION=1.6.0
+ARG PI_VERSION=1.6.1
 # Oh My Pi: the npm package needs Bun, so the standalone release binary instead (~280 MB)
 # renovate-digest: depName=can1357/oh-my-pi
-ARG OMP_VERSION=v19.1.1
-ARG OMP_SHA256=04e9490f9394da6d6804474cc2e41eb3d18f8e26215df4b34bdd4ad4c0d8a401
+ARG OMP_VERSION=v19.2.1
+ARG OMP_SHA256=e8b937f9bf023baa147bdd300ad5421af0a6ef8b1f350c47a9a93d5fca94feca
 # AGENTS: which CLIs to install (the Multica daemon registers one runtime per CLI it finds)
 ARG AGENTS="claude codex opencode pi omp"
 RUN pkgs=(); \
