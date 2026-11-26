@@ -182,7 +182,7 @@ ARG CODEX_VERSION=0.172.0
 # OpenCode 2: the @opencode/cli package installs both `opencode` (the command Multica detects) and
 # `opencode2`. Multica v0.12+ selects its v2/ACP backend from the CLI's major version.
 # renovate: datasource=npm depName=@opencode/cli
-ARG OPENCODE_VERSION=2.4.1
+ARG OPENCODE_VERSION=2.4.2
 # renovate: datasource=npm depName=@earendil-works/pi-coding-agent
 ARG PI_VERSION=1.6.1
 # Oh My Pi: the npm package needs Bun, so the standalone release binary instead (~280 MB)
