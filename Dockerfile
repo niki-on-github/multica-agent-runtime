@@ -124,8 +124,8 @@ RUN ln -s ../lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm; \
 
 # --- Release binaries: gh, tea, ttyd ---------------------------------------------------------------
 # renovate-digest: depName=cli/cli
-ARG GH_VERSION=v2.105.0
-ARG GH_SHA256=79e7ab5db738c48777b696e374f8b428f0647debfb424f44d2f426370407fe2f
+ARG GH_VERSION=v2.106.0
+ARG GH_SHA256=a476449fa9625413c54a3734eded62e9e480e49f421ff08e7f3b3879c059a033
 # renovate-digest: depName=tsl0922/ttyd
 ARG TTYD_VERSION=1.7.7
 ARG TTYD_SHA256=8a217c968aba172e0dbf3f34447218dc015bc4d5e59bf51db2f2cd12b7be4f55
