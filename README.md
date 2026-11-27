@@ -299,69 +299,63 @@ part of a plan's 5-hour window. Two defaults keep it affordable:
 `managed-settings.json`) sets `autoCompactWindow` or that variable. Sessions then compact at about 400k
 instead of near 1M. `CLAUDE_CODE_AUTO_COMPACT_WINDOW=off` keeps Claude's own default.
 
-**Cold-resume guard** ([`claude-resume-guard`](rootfs/usr/local/bin/claude-resume-guard), on by default). The
+**Cold-resume guard** ([`multica-cold-resume`](rootfs/usr/local/bin/multica-cold-resume), on by default). The
 entrypoint points `MULTICA_CLAUDE_PATH` at a shim that checks every task's `--resume` before Claude starts. It
-works with and without the task sandbox, and wraps a `MULTICA_CLAUDE_PATH` you set yourself.
+works with and without the task sandbox (also for warm-pool starts, where the task id comes from
+`MULTICA_TASK_ENV_FILE`), and wraps a `MULTICA_CLAUDE_PATH` you set yourself. It never calls a model.
 
-| Situation | What happens |
-|---|---|
-| new session, no transcript, probe, warm (idle < 30 min) or small (< 150k tokens) | nothing: Claude starts unchanged |
-| cold and big | the transcript is cut down to a digest (user messages, replies, tools, files touched; no tool output, usually a few % of the context), and a small model (`haiku`) turns it into a hand-off note. The guard then **declines the resume** the way Claude does for a missing session (`No conversation found with session ID: <id>`) without starting Claude. Multica (v0.13) treats that as a refused resume: it retires the session and retries the task once **without** it, with its own cold-start prompt and continuity notice. The guard gives that retry the hand-off note (`--append-system-prompt-file`) |
-| the summary call hits a usage/rate limit | resumes unchanged (a resume fails the same way, and the daemon keeps its session) |
-| the summary call fails or takes longer than 180 s | the digest itself is the hand-off (`CLAUDE_RESUME_GUARD_FALLBACK=resume`: resumes unchanged) |
+A resume counts as **cold** when the session is big (≥ 150k tokens of context) and either
+
+- it was idle at least as long as Claude's prompt cache lasts: 1 h on a subscription, 5 min with an API key,
+  Bedrock/Vertex, `FORCE_PROMPT_CACHING_5M` or `promptCacheTtl`/`CLAUDE_CODE_PROMPT_CACHE_TTL=5m` (minus a
+  small margin; `COLD_RESUME_IDLE_MINUTES` sets a fixed time instead), or
+- the model changed: the task's `--model` / `ANTHROPIC_MODEL` differs from the model of the session's last
+  reply. An alias (`opus`, `sonnet[1m]`, …) is compared by family, or by `ANTHROPIC_DEFAULT_<FAMILY>_MODEL` when
+  that pins it; a full id exactly. Without `--model` only the idle time decides.
+
+For a cold resume the guard writes a hand-off for the task and **declines the resume** the way Claude does for a
+missing session (`No conversation found with session ID: <id>`, exit 1) without starting Claude. Multica (v0.13)
+treats that as a refused resume: it retires the session and retries the task once **without** it, with its own
+cold-start prompt and continuity notice. The guard gives that retry the hand-off (`--append-system-prompt-file`):
+
+- an extract of the old conversation, at most about 20k tokens: the first task message, the newest user
+  messages and replies, the tools used (name and file/command), the files edited; no tool output, no thinking;
+- the path of a **full text extract** (every message and reply, no tool output; typically a few % of the
+  context), with the instruction not to read it in the main session but to ask a **subagent on model `haiku`**
+  a concrete question about it when a detail is missing. Details cost tokens only when the agent needs them,
+  and Haiku reads them.
 
 ```mermaid
 flowchart TD
-    D["Multica daemon starts a task<br/>MULTICA_CLAUDE_PATH = guard shim"] --> G{"claude-resume-guard:<br/>CLAUDE_RESUME_GUARD=off<br/>or no MULTICA_TASK_ID?"}
-    G -- yes --> RUN["exec next command unchanged<br/>sandbox shim or claude"]
-    G -- no --> R{"--resume &lt;id&gt; in the arguments?"}
+    D["Multica daemon starts a task<br/>MULTICA_CLAUDE_PATH = guard shim"] --> G{"multica-cold-resume:<br/>COLD_RESUME=off or no task id<br/>(env or MULTICA_TASK_ENV_FILE)?"}
+    G -- yes --> RUN["exec claude unchanged<br/>(sandbox shim or claude)"]
+    G -- no --> R{"--resume &lt;id&gt;?"}
 
-    R -- no --> P{"stored hand-off for<br/>this MULTICA_TASK_ID?"}
+    R -- no --> P{"hand-off stored for this task<br/>(&lt; 24 h)?"}
     P -- no --> RUN
-    P -- yes --> FRESH["exec claude without --resume<br/>+ --append-system-prompt-file hand-off"]
+    P -- yes --> FRESH["exec claude + --append-system-prompt-file:<br/>extract ≤ 20k tokens + path of the full extract<br/>+ 'ask a haiku subagent for details'"]
 
-    R -- yes --> T{"transcript<br/>projects/&lt;cwd&gt;/&lt;id&gt;.jsonl exists?"}
+    R -- yes --> T{"transcript exists and<br/>≥ 150k tokens?"}
     T -- no --> RUN
-    T -- yes --> M["measure: context tokens from the last usage,<br/>idle time from the last timestamp"]
-    M --> C{"idle ≥ 30 min<br/>and ≥ 150k tokens?"}
+    T -- yes --> C{"idle ≥ cache lifetime<br/>or model switched?"}
     C -- no --> RUN
-
-    C -- yes --> X["digest: user messages, replies, tools,<br/>files edited; no tool output; ≤ 60k tokens"]
-    X --> MODE{"CLAUDE_RESUME_GUARD"}
-    MODE -- digest --> DG["hand-off = digest ≤ 20k tokens"]
-    MODE -- summarize --> S["summary call: next command -p --model haiku<br/>no tools, MCP, hooks, session file; ≤ 180 s"]
-    S -- note written --> H["hand-off = summary"]
-    S -- "usage / rate limit" --> RUN
-    S -- "error or timeout" --> FB{"CLAUDE_RESUME_GUARD_FALLBACK"}
-    FB -- resume --> RUN
-    FB -- digest --> DG
-
-    H --> STORE["store hand-off per MULTICA_TASK_ID<br/>log line + events.jsonl"]
-    DG --> STORE
-    STORE --> ST{"CLAUDE_RESUME_GUARD_STRATEGY"}
-    ST -- replace --> FRESH
-    ST -- "reject (default)" --> REJ["print 'No conversation found with session ID: &lt;id&gt;'<br/>exit 1, Claude is not started"]
-    REJ --> DR["daemon: resume refused → retire the session,<br/>retry the task once without --resume,<br/>cold-start prompt + continuity notice"]
+    C -- yes --> STORE["store extract + full extract for the task<br/>log line + events.jsonl"]
+    STORE --> REJ["print 'No conversation found with session ID: &lt;id&gt;'<br/>exit 1, Claude is not started"]
+    REJ --> DR["daemon: resume refused → retire the session,<br/>retry once without --resume,<br/>cold-start prompt + continuity notice"]
     DR -- "same task, no --resume" --> G
-
-    FRESH --> NEW["Claude: fresh session, a few k tokens<br/>daemon stores the new session id"]
+    FRESH --> NEW["Claude: fresh session, a few 10k tokens<br/>daemon stores the new session id"]
 ```
 
-The summary call asks for `haiku` (`CLAUDE_RESUME_GUARD_MODEL`). That is Claude Code's alias for the current Haiku
-model; the guard does not check which model answered.
+The declined run ends within milliseconds (no model call, so the daemon's 60 s startup handshake is no
+concern). The old transcript stays on disk (`claude --resume <id>` in the web shell still opens it). If the
+hand-off cannot be stored, or anything in the guard fails, Claude resumes unchanged. Each decline and each
+hand-off is one `multica-cold-resume:` line in the task log and in
+`~/.local/state/multica-cold-resume/events.jsonl` (`doctor` counts them); stored hand-offs are removed after
+24 h.
 
-The daemon then stores the new session for the issue. The old transcript stays on disk (`claude --resume <id>`
-in the web shell still opens it). The agent gets Multica's cold-start prompt (full comment reading) plus the
-note, which tells it to re-read the issue comments and the work tree. The task log shows the declined resume
-and Multica's "retrying with fresh session" next to the guard's line. Detail of the old conversation that is not in the note is lost: that is the trade-off for a cold
-start of a few thousand tokens instead of hundreds of thousands. Each decision is logged as one
-`claude-resume-guard:` line in the task log and in `~/.local/state/claude-resume-guard/events.jsonl` (`doctor`
-counts them). The declined first run never starts Claude, so the summary is not bound by the 60 s the daemon
-gives Claude's startup handshake.
-
-`CLAUDE_RESUME_GUARD_STRATEGY=replace` skips the round trip: Claude starts at once without `--resume` and with
-the note. Multica's prompt then still assumes a resumed session, and the summary has to fit that handshake
-(default timeout 50 s). Use it with a Multica version that does not retry a refused resume.
+Limits: when a subscription runs on extra usage, Claude falls back to the 5-minute cache, which the guard cannot
+see; `COLD_RESUME_IDLE_MINUTES=5` catches that at the cost of more fresh starts. An effort change does not count
+as cold. The settings are not named `MULTICA_*` because Multica drops such keys from an agent's custom env.
 
 ## Docker-in-Docker
 
@@ -501,11 +495,9 @@ Nothing is baked in; the standard variables are read natively:
 | `WEBUI_SHELL`, `WEBUI_SHELL_MAX`, `WEBUI_ALLOWED_ORIGINS` | `1`, `8`, – | web UI terminal: on/off, concurrent sessions, extra allowed `Origin`s (comma separated) behind a proxy that rewrites `Host` |
 | `WEBUI_SAMPLE_SECONDS`, `WEBUI_HISTORY`, `WEBUI_DISKS`, `WEBUI_DOCKER`, `WEBUI_XTERM_DIR` | `2`, `180`, `/data,/home/agent,/nix,/tmp`, `1`, `/usr/local/lib/node_modules` | web UI: resource sampling interval, samples kept, filesystems shown, list Docker containers, where `@xterm/xterm` is installed |
 | `CLAUDE_CODE_AUTO_COMPACT_WINDOW` | `400000` unless set here or in Claude's settings | Claude auto-compacts at this context size; `off`: Claude's default, see [cold resumes](#claude-code-cold-resumes) |
-| `CLAUDE_RESUME_GUARD` | `summarize` | `digest` (no model call, the transcript extract is the hand-off) or `off`, see [cold resumes](#claude-code-cold-resumes) |
-| `CLAUDE_RESUME_GUARD_IDLE_MINUTES`, `CLAUDE_RESUME_GUARD_MIN_TOKENS` | `30`, `150000` | a resume counts as cold after this idle time and is replaced from this context size |
-| `CLAUDE_RESUME_GUARD_STRATEGY` | `reject` | `reject`: decline the resume so Multica retries with its cold-start prompt; `replace`: start fresh right away |
-| `CLAUDE_RESUME_GUARD_MODEL`, `CLAUDE_RESUME_GUARD_TIMEOUT`, `CLAUDE_RESUME_GUARD_FALLBACK` | `haiku`, `180` (`replace`: `50`), `digest` | summary model, seconds for the summary call, what a failed summary falls back to (`digest` or `resume`) |
-| `CLAUDE_RESUME_GUARD_DIGEST_TOKENS`, `CLAUDE_RESUME_GUARD_HANDOFF_TOKENS`, `CLAUDE_RESUME_GUARD_STATE_DIR` | `60000`, `20000`, `~/.local/state/claude-resume-guard` | digest size sent to the summary model, size of a digest used as hand-off, event log and per-task hand-offs |
+| `COLD_RESUME` | `on` | `off` disables the [cold-resume guard](#claude-code-cold-resumes) |
+| `COLD_RESUME_MIN_TOKENS`, `COLD_RESUME_IDLE_MINUTES` | `150000`, Claude's cache lifetime | a cold resume is replaced from this context size; a fixed idle time instead of the cache lifetime (1 h subscription, 5 min API key) |
+| `COLD_RESUME_NEXT`, `COLD_RESUME_STATE_DIR` | set by the entrypoint, `~/.local/state/multica-cold-resume` | command the guard execs; hand-offs and event log |
 | `CHROME_EXTRA_ARGS` | – | extra Chrome flags |
 | `AGENT_SANDBOX` | `off` | `on` / `required`: each task's CLI in bubblewrap, see [Task sandbox](#task-sandbox) |
 | `AGENT_SANDBOX_PASS_ENV` | – | secret-looking variables passed into the sandbox (comma separated) |
@@ -533,8 +525,8 @@ example Deployment with the daemon and the web shell.
   Docker it builds a web image, runs it, and tests it with Playwright in Chrome (screenshots are
   uploaded as artifacts); the cuda job also builds a CUDA image. In the two Docker setups
   `tests/sandbox.sh` checks the task sandbox against a simulated task (isolation, env filter,
-  refusals, probes, cancellation, Docker from inside); `tests/resume-guard.sh` checks the cold-resume guard with a fake
-  `claude` (also runs outside the image: `GUARD=rootfs/usr/local/bin/claude-resume-guard tests/resume-guard.sh`); `tests/webui.py` (standard library only) tests
+  refusals, probes, cancellation, Docker from inside); `tests/cold-resume.sh` checks the cold-resume guard with a fake
+  `claude` (also runs outside the image: `GUARD=rootfs/usr/local/bin/multica-cold-resume tests/cold-resume.sh`); `tests/webui.py` (standard library only) tests
   the management web UI (in-use detection, deletion, terminal WebSocket, status API) against a
   throw-away workspaces root
 - `.github/workflows/build.yml`: matrix `cpu`/`cuda`, build → smoke tests → push (main only)

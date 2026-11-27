@@ -232,7 +232,7 @@ RUN userdel -r ubuntu 2>/dev/null || true; \
 
 COPY rootfs/ /
 RUN chmod 0755 /usr/local/bin/entrypoint.sh /usr/local/bin/runtime-doctor /usr/local/bin/agent-sandbox \
-    /usr/local/bin/claude-resume-guard /usr/local/lib/multica-agent-runtime/*.sh \
+    /usr/local/bin/multica-cold-resume /usr/local/lib/multica-agent-runtime/*.sh \
     /usr/local/lib/multica-agent-runtime/sandbox-bin/* /usr/local/lib/multica-agent-runtime/guard-bin/*; \
   chmod -R a+rX /etc/agent-skel /etc/nix /etc/profile.d /usr/share/doc/multica-agent-runtime; \
   ln -s /usr/local/bin/runtime-doctor /usr/local/bin/doctor; \

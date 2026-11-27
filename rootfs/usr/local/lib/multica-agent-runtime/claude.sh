@@ -1,5 +1,5 @@
 # shellcheck shell=bash
-# Claude Code defaults for the tasks: an earlier auto-compact window and the cold-resume guard.
+# Claude Code defaults for the tasks: an earlier auto-compact window and the cold-resume guard (multica-cold-resume).
 GUARD_SHIMS=/usr/local/lib/multica-agent-runtime/guard-bin
 CLAUDE_DEFAULT_AUTO_COMPACT_WINDOW=400000
 
@@ -37,21 +37,18 @@ setup_claude_defaults() {
   fi
 }
 
-# CLAUDE_RESUME_GUARD (summarize | digest | off, default summarize): MULTICA_CLAUDE_PATH -> guard shim, which
-# execs what MULTICA_CLAUDE_PATH was before (the sandbox shim, a custom path or the real claude). Runs after
-# setup_sandbox.
-setup_resume_guard() {
+# COLD_RESUME (default on, `off` disables): MULTICA_CLAUDE_PATH -> guard shim, which execs what
+# MULTICA_CLAUDE_PATH was before (the sandbox shim, a custom path or the real claude). Runs after setup_sandbox.
+setup_cold_resume() {
   command -v claude >/dev/null || return 0
-  local mode=${CLAUDE_RESUME_GUARD:-summarize}
-  case "$mode" in
+  if [ -n "${CLAUDE_RESUME_GUARD:-}" ]; then
+    warn "CLAUDE_RESUME_GUARD is replaced by COLD_RESUME (on/off)"
+    case "$CLAUDE_RESUME_GUARD" in off | 0 | false | no) : "${COLD_RESUME:=off}" ;; esac
+  fi
+  case "${COLD_RESUME:-on}" in
     off | 0 | false | no)
-      agent_env CLAUDE_RESUME_GUARD off
+      agent_env COLD_RESUME off
       return 0
-      ;;
-    summarize | digest) ;;
-    *)
-      warn "CLAUDE_RESUME_GUARD=$mode unknown (summarize, digest, off): using summarize"
-      mode=summarize
       ;;
   esac
   local next=${MULTICA_CLAUDE_PATH:-}
@@ -59,7 +56,9 @@ setup_resume_guard() {
     return 0 # already wrapped (the entrypoint ran twice)
   fi
   [ -n "$next" ] || next=$(command -v claude)
-  export CLAUDE_RESUME_GUARD=$mode CLAUDE_RESUME_GUARD_NEXT=$next MULTICA_CLAUDE_PATH=$GUARD_SHIMS/claude
-  agent_env CLAUDE_RESUME_GUARD "$mode"
-  log "claude: resume guard $mode (cold after ${CLAUDE_RESUME_GUARD_IDLE_MINUTES:-30} min, from ${CLAUDE_RESUME_GUARD_MIN_TOKENS:-150000} tokens; then $next)"
+  export COLD_RESUME_NEXT=$next MULTICA_CLAUDE_PATH=$GUARD_SHIMS/claude
+  agent_env COLD_RESUME on
+  local lifetime="Claude's cache lifetime"
+  [ -z "${COLD_RESUME_IDLE_MINUTES:-}" ] || lifetime="$COLD_RESUME_IDLE_MINUTES min idle"
+  log "claude: cold-resume guard on (from ${COLD_RESUME_MIN_TOKENS:-150000} tokens, after $lifetime or a model switch; then $next)"
 }

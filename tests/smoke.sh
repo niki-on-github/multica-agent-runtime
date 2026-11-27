@@ -97,14 +97,14 @@ claude_lib='. /usr/local/lib/multica-agent-runtime/common.sh; AGENT_ENV_FILE=/de
 cfg=$(mktemp -d) && echo '{"autoCompactWindow": 300000}' > "$cfg/settings.json"
 [ -z "$(env -u CLAUDE_CODE_AUTO_COMPACT_WINDOW CLAUDE_CONFIG_DIR="$cfg" bash -c "$claude_lib; setup_claude_defaults; echo \${CLAUDE_CODE_AUTO_COMPACT_WINDOW:-}" 2>/dev/null)" ] \
   || fail "autoCompactWindow in settings.json overridden"
-out=$(env -u MULTICA_CLAUDE_PATH bash -c "$claude_lib; setup_resume_guard 2>/dev/null; echo \$MULTICA_CLAUDE_PATH \$CLAUDE_RESUME_GUARD_NEXT")
+out=$(env -u MULTICA_CLAUDE_PATH bash -c "$claude_lib; setup_cold_resume 2>/dev/null; echo \$MULTICA_CLAUDE_PATH \$COLD_RESUME_NEXT")
 [ "$out" = "/usr/local/lib/multica-agent-runtime/guard-bin/claude $(command -v claude)" ] || fail "guard wiring: $out"
-out=$(env MULTICA_CLAUDE_PATH=/usr/local/lib/multica-agent-runtime/sandbox-bin/claude bash -c "$claude_lib; setup_resume_guard 2>/dev/null; echo \$CLAUDE_RESUME_GUARD_NEXT")
+out=$(env MULTICA_CLAUDE_PATH=/usr/local/lib/multica-agent-runtime/sandbox-bin/claude bash -c "$claude_lib; setup_cold_resume 2>/dev/null; echo \$COLD_RESUME_NEXT")
 [ "$out" = /usr/local/lib/multica-agent-runtime/sandbox-bin/claude ] || fail "guard does not chain the sandbox shim: $out"
-[ -z "$(env -u MULTICA_CLAUDE_PATH CLAUDE_RESUME_GUARD=off bash -c "$claude_lib; setup_resume_guard; echo \${MULTICA_CLAUDE_PATH:-}")" ] \
-  || fail "CLAUDE_RESUME_GUARD=off still wraps claude"
+[ -z "$(env -u MULTICA_CLAUDE_PATH COLD_RESUME=off bash -c "$claude_lib; setup_cold_resume; echo \${MULTICA_CLAUDE_PATH:-}")" ] \
+  || fail "COLD_RESUME=off still wraps claude"
 /usr/local/lib/multica-agent-runtime/guard-bin/claude --version | grep -q 'Claude Code' || fail "guard shim --version"
-/tests/resume-guard.sh 2>&1 | tail -n 1
+/tests/cold-resume.sh 2>&1 | tail -n 1
 
 step "doctor"
 runtime-doctor

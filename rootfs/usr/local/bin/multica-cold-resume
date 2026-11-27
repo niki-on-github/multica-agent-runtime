@@ -1,0 +1,368 @@
+#!/usr/bin/env python3
+"""multica-cold-resume [claude args...]: turn an expensive cold `claude --resume` into a cheap fresh start.
+
+Multica continues an issue with `claude -p ... --resume <session id>`. When the prompt cache of that session
+is gone (idle longer than the cache lifetime, or the agent now uses another model), the first request re-reads
+the whole conversation uncached, which near 1M context costs a large part of a plan window.
+
+The entrypoint points MULTICA_CLAUDE_PATH at a shim that execs this script. For a big session whose cache is
+gone it does not start Claude: it stores a hand-off for the task and answers like Claude does for a missing
+session ("No conversation found with session ID: <id>", exit 1). Multica (v0.13) treats that as a refused
+resume, retires the session and retries the task once without --resume, with its own cold-start prompt. That
+retry (same task, no --resume) gets the hand-off via --append-system-prompt-file:
+
+  * an extract of the old conversation (first task message, newest messages, tools used, files edited;
+    no tool output), at most about 20k tokens
+  * the path of a full text extract of the old conversation, and the instruction to look details up there
+    through a subagent on model haiku instead of reading it in the main session
+
+Everything else (no task, no --resume, missing transcript, small or warm session) runs Claude unchanged, and
+so does any internal error. The old transcript is never modified.
+
+Environment (all optional; also settable per agent in Multica's custom env):
+  COLD_RESUME              off: disable (default on)
+  COLD_RESUME_MIN_TOKENS   context size from which a cold resume is replaced (default 150000)
+  COLD_RESUME_IDLE_MINUTES fixed idle time after which the cache counts as gone (default: Claude's cache
+                           lifetime: 1 h on a subscription, 5 min with an API key or promptCacheTtl=5m)
+  COLD_RESUME_NEXT         command to exec (default: `claude` on PATH, not this script's shim)
+  COLD_RESUME_STATE_DIR    hand-offs and event log (default ~/.local/state/multica-cold-resume)
+"""
+
+from __future__ import annotations
+
+import datetime as dt
+import json
+import os
+import re
+import shutil
+import sys
+import time
+
+SHIM_DIR = "/usr/local/lib/multica-agent-runtime/guard-bin"
+DIGEST_CHARS = 80_000  # about 20k tokens in the system prompt
+HANDOFF_MAX_AGE = 24 * 3600
+FAMILIES = ("opus", "sonnet", "haiku", "fable", "mythos")
+FILE_TOOLS = {"Edit", "Write", "MultiEdit", "NotebookEdit"}
+REJECT = "No conversation found with session ID: {}"  # Claude Code's wording, matched by the Multica daemon
+
+
+def env_int(name: str, default: int) -> int:
+    try:
+        return int(os.environ.get(name) or default)
+    except ValueError:
+        return default
+
+
+def log(msg: str) -> None:
+    print(f"multica-cold-resume: {msg}", file=sys.stderr, flush=True)
+
+
+def state_dir() -> str:
+    return os.environ.get("COLD_RESUME_STATE_DIR") or os.path.join(
+        os.environ.get("XDG_STATE_HOME") or os.path.expanduser("~/.local/state"), "multica-cold-resume")
+
+
+def claude_dir() -> str:
+    return os.environ.get("CLAUDE_CONFIG_DIR") or os.path.expanduser("~/.claude")
+
+
+def record(event: dict) -> None:
+    try:
+        os.makedirs(state_dir(), exist_ok=True)
+        event = {"time": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"), **event}
+        with open(os.path.join(state_dir(), "events.jsonl"), "a", encoding="utf-8") as f:
+            f.write(json.dumps(event) + "\n")
+    except OSError:
+        pass
+
+
+# --- process -------------------------------------------------------------------------------------
+def next_command() -> str:
+    if os.environ.get("COLD_RESUME_NEXT"):
+        return os.environ["COLD_RESUME_NEXT"]
+    for d in os.environ.get("PATH", "").split(os.pathsep):
+        p = os.path.join(d, "claude")
+        if d and os.path.realpath(d) != os.path.realpath(SHIM_DIR) and os.path.isfile(p) and os.access(p, os.X_OK):
+            return p
+    sys.exit("multica-cold-resume: claude not found on PATH")
+
+
+def run(cmd: str, args: list[str]) -> None:
+    sys.stdout.flush()
+    sys.stderr.flush()
+    os.execv(cmd, [cmd] + args)
+
+
+def task_id() -> str:
+    tid = os.environ.get("MULTICA_TASK_ID", "")
+    path = os.environ.get("MULTICA_TASK_ENV_FILE", "")
+    if not tid and path:  # warm-pool start: the per-turn variables are in the overlay file
+        try:
+            with open(path, encoding="utf-8") as f:
+                data = json.load(f)
+            if data.get("active"):
+                tid = str(data.get("env", {}).get("MULTICA_TASK_ID", ""))
+        except (OSError, ValueError, AttributeError):
+            pass
+    return tid if re.fullmatch(r"[A-Za-z0-9_-]{1,128}", tid) else ""
+
+
+def arg_value(args: list[str], *names: str) -> str | None:
+    for i, a in enumerate(args):
+        if a in names and i + 1 < len(args) and not args[i + 1].startswith("-"):
+            return args[i + 1]
+        for n in names:
+            if n.startswith("--") and a.startswith(n + "="):
+                return a.split("=", 1)[1]
+    return None
+
+
+# --- cache lifetime and model --------------------------------------------------------------------
+def claude_setting(key: str):
+    for f in (os.path.join(claude_dir(), "settings.json"), "/etc/claude-code/managed-settings.json"):
+        try:
+            with open(f, encoding="utf-8") as fh:
+                value = json.load(fh).get(key)
+            if value is not None:
+                return value
+        except (OSError, ValueError, AttributeError):
+            continue
+    return None
+
+
+def cache_lifetime() -> int:
+    """Seconds after the last request from which the cache counts as gone (with a small margin)."""
+    if env_int("COLD_RESUME_IDLE_MINUTES", 0) > 0:
+        return env_int("COLD_RESUME_IDLE_MINUTES", 0) * 60
+    ttl = os.environ.get("CLAUDE_CODE_PROMPT_CACHE_TTL") or claude_setting("promptCacheTtl")
+    if ttl not in ("5m", "1h"):
+        short = os.environ.get("FORCE_PROMPT_CACHING_5M") == "1" or any(
+            os.environ.get(v) for v in ("ANTHROPIC_API_KEY", "CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_VERTEX"))
+        ttl = "5m" if short else "1h"
+    return 300 - 60 if ttl == "5m" else 3600 - 120
+
+
+def normalize(model: str | None):
+    if not model:
+        return None
+    m = re.sub(r"\[[^]]*\]$", "", model.strip().lower())  # [1m]
+    m = re.sub(r"-\d{8}$", "", m)  # date suffix
+    if m in FAMILIES:
+        pinned = os.environ.get(f"ANTHROPIC_DEFAULT_{m.upper()}_MODEL")
+        return normalize(pinned) if pinned and pinned.lower() not in FAMILIES else ("family", m)
+    return m
+
+
+def model_switched(requested, last: str | None) -> bool:
+    if requested is None or last is None:
+        return False  # unknown: only the idle time decides
+    last = normalize(last)
+    if isinstance(requested, tuple):
+        return f"-{requested[1]}-" not in f"-{last}-"
+    return requested != last
+
+
+# --- transcript ----------------------------------------------------------------------------------
+def load(path: str) -> list[dict]:
+    out = []
+    with open(path, "rb") as f:
+        for raw in f:
+            try:
+                e = json.loads(raw)
+            except ValueError:
+                continue
+            if isinstance(e, dict) and not e.get("isSidechain"):
+                out.append(e)
+    return out
+
+
+def last_turn(entries: list[dict], path: str) -> tuple[str | None, float, int]:
+    """(model, time of the last request, context tokens of the next request)."""
+    for e in reversed(entries):
+        msg = e.get("message") if isinstance(e.get("message"), dict) else {}
+        model = msg.get("model") or e.get("requestedModel")
+        u = msg.get("usage") if isinstance(msg.get("usage"), dict) else {}
+        if e.get("type") != "assistant" or model == "<synthetic>" or not (model or u):
+            continue  # <synthetic>: entries Claude writes for API errors
+        tokens = sum(int(u.get(k) or 0) for k in
+                     ("input_tokens", "cache_read_input_tokens", "cache_creation_input_tokens", "output_tokens"))
+        try:
+            ts = dt.datetime.fromisoformat(str(e.get("timestamp")).replace("Z", "+00:00")).timestamp()
+        except ValueError:
+            ts = os.path.getmtime(path)
+        return model, ts, tokens or os.path.getsize(path) // 4
+    return None, os.path.getmtime(path), os.path.getsize(path) // 4
+
+
+def clip(text: str, limit: int) -> str:
+    text = text.strip()
+    if len(text) <= limit:
+        return text
+    head = limit * 2 // 3
+    return f"{text[:head]}\n[... {len(text) - limit} characters cut ...]\n{text[-(limit - head):]}"
+
+
+def messages(entries: list[dict]) -> tuple[list[str], list[str]]:
+    """(['## User\\n...', '## Agent\\n...', ...], files edited) of the main conversation, no tool output."""
+    items, files = [], []
+    for e in entries:
+        kind = e.get("type")
+        msg = e.get("message")
+        if kind not in ("user", "assistant") or not isinstance(msg, dict) or e.get("isMeta"):
+            continue
+        content = msg.get("content")
+        blocks = [{"type": "text", "text": content}] if isinstance(content, str) else content
+        parts = []
+        for b in blocks if isinstance(blocks, list) else []:
+            if not isinstance(b, dict):
+                continue
+            if b.get("type") == "text" and str(b.get("text", "")).strip():
+                parts.append(clip(str(b["text"]), 6000 if kind == "user" else 4000))
+            elif b.get("type") == "tool_use" and kind == "assistant":
+                inp = b.get("input") if isinstance(b.get("input"), dict) else {}
+                what = next((str(inp[k]) for k in ("file_path", "notebook_path", "path", "command", "pattern",
+                                                    "url", "description") if inp.get(k)), "")
+                parts.append(f"[tool {b.get('name')}{': ' + clip(what.replace(chr(10), ' '), 200) if what else ''}]")
+                fp = inp.get("file_path") or inp.get("notebook_path")
+                if b.get("name") in FILE_TOOLS and fp and fp not in files:
+                    files.append(fp)
+        if parts:
+            label = "Summary of the conversation before a compaction" if e.get("isCompactSummary") else (
+                "User" if kind == "user" else "Agent")
+            items.append(f"## {label}\n" + "\n".join(parts))
+    return items, files
+
+
+def digest(items: list[str], files: list[str], budget: int) -> str:
+    first = [items[0]] if items else []
+    rest = items[1:]
+    tail = ["## Files edited or written\n" + "\n".join(f"- {f}" for f in files[-200:])] if files else []
+    used = sum(len(x) + 2 for x in first + tail)
+    kept: list[str] = []
+    for item in reversed(rest):
+        if used + len(item) + 2 > budget:
+            break
+        kept.insert(0, item)
+        used += len(item) + 2
+    gap = [f"[... {len(rest) - len(kept)} earlier messages omitted ...]"] if len(kept) < len(rest) else []
+    return clip("\n\n".join(first + gap + kept + tail), budget)
+
+
+def handoff_text(meta: dict, full_path: str) -> str:
+    return f"""\
+# Session hand-off (multica-cold-resume)
+
+This is a fresh session. It replaces the earlier Claude Code session {meta['session']} of this task (about
+{meta['tokens'] // 1000}k tokens of context), which was not resumed because {meta['reason']}: resuming it would
+have re-read the whole conversation uncached. Treat the extract below as your memory of the earlier work; it
+can be incomplete. Before you act: read the issue comments as your instructions say, check `git status` and
+`git log` of the work tree, and re-read files before you edit them.
+
+More detail of the earlier conversation is in {full_path} (plain text: every user message and reply, the tools
+used and the files edited; no tool output). Do not read that file in this session. When you need a detail that
+is not in the extract (a decision, an exact error message, why something was done), start a subagent with the
+Agent tool and model "haiku", give it the path and a concrete question, and use its answer.
+
+<handoff>
+{meta['digest']}
+</handoff>
+"""
+
+
+# --- main ----------------------------------------------------------------------------------------
+def fresh_run(args: list[str], task: str) -> list[str]:
+    """Arguments for a run without --resume: the hand-off of this task's declined session, if any."""
+    base = os.path.join(state_dir(), task)
+    try:
+        if time.time() - os.path.getmtime(base + ".json") > HANDOFF_MAX_AGE:
+            return args
+        with open(base + ".json", encoding="utf-8") as f:
+            meta = json.load(f)
+    except (OSError, ValueError):
+        return args
+    target = os.path.join(os.environ.get("TMPDIR") or state_dir(), "multica-cold-resume")  # visible in the sandbox
+    os.makedirs(target, exist_ok=True)
+    full = os.path.join(target, task + "-full.md")
+    shutil.copyfile(base + "-full.md", full)
+    handoff = os.path.join(target, task + ".md")
+    with open(handoff, "w", encoding="utf-8") as f:
+        f.write(handoff_text(meta, full))
+    log(f"task {task}: passing the hand-off of declined session {meta['session']}")
+    record({"task": task, "session": meta["session"], "action": "handoff"})
+    return args + ["--append-system-prompt-file", handoff]
+
+
+def clean_state() -> None:
+    try:
+        for name in os.listdir(state_dir()):
+            p = os.path.join(state_dir(), name)
+            if name != "events.jsonl" and time.time() - os.path.getmtime(p) > HANDOFF_MAX_AGE:
+                os.unlink(p)
+    except OSError:
+        pass
+
+
+def guard(args: list[str], task: str) -> tuple[list[str], str | None]:
+    """(arguments to run Claude with, session id to decline instead)."""
+    clean_state()
+    sid = arg_value(args, "--resume", "-r")
+    if sid is None:
+        return fresh_run(args, task), None
+    if not re.fullmatch(r"[A-Za-z0-9._-]{1,128}", sid):
+        return args, None
+    path = os.path.join(claude_dir(), "projects", re.sub(r"[^A-Za-z0-9]", "-", os.getcwd()), sid + ".jsonl")
+    if not os.path.isfile(path):
+        return args, None  # Claude and the daemon handle a missing transcript
+    entries = load(path)
+    last_model, last_time, tokens = last_turn(entries, path)
+    if tokens < env_int("COLD_RESUME_MIN_TOKENS", 150_000):
+        return args, None
+    idle = max(0.0, time.time() - last_time)
+    lifetime = cache_lifetime()
+    requested = normalize(arg_value(args, "--model") or os.environ.get("ANTHROPIC_MODEL"))
+    switched = model_switched(requested, last_model)
+    if idle < lifetime and not switched:
+        return args, None
+
+    if switched:
+        reason = f"the model changed from {last_model} to {arg_value(args, '--model') or os.environ.get('ANTHROPIC_MODEL')}"
+    else:
+        reason = f"it was idle for {int(idle // 3600)}h{int(idle % 3600 // 60):02d}m, longer than the prompt cache lasts"
+    items, files = messages(entries)
+    meta = {"session": sid, "tokens": tokens, "reason": reason, "digest": digest(items, files, DIGEST_CHARS)}
+    base = os.path.join(state_dir(), task)
+    try:
+        os.makedirs(state_dir(), exist_ok=True)
+        with open(base + "-full.md", "w", encoding="utf-8") as f:
+            f.write("\n\n".join(items + (["## Files edited or written\n" + "\n".join(f"- {x}" for x in files)]
+                                         if files else [])) + "\n")
+        with open(base + ".json", "w", encoding="utf-8") as f:
+            json.dump(meta, f)
+    except OSError as e:
+        log(f"cannot store the hand-off ({e}), resuming unchanged")
+        return args, None
+    log(f"session {sid} ({tokens // 1000}k tokens): {reason}; declining it, so Multica retries the task with "
+        "a fresh session that gets a hand-off")
+    record({"task": task, "session": sid, "action": "declined", "tokens": tokens, "reason": reason})
+    return args, sid
+
+
+def main() -> None:
+    args = sys.argv[1:]
+    cmd = next_command()
+    task = task_id()
+    decline = None
+    if os.environ.get("COLD_RESUME", "on").lower() not in ("off", "0", "false", "no") and task:
+        try:
+            args, decline = guard(args, task)
+        except Exception as e:  # never block a task on this script
+            log(f"internal error, running unchanged: {type(e).__name__}: {e}")
+            args, decline = sys.argv[1:], None
+    if decline:
+        print(REJECT.format(decline), file=sys.stderr, flush=True)
+        sys.exit(1)
+    run(cmd, args)
+
+
+if __name__ == "__main__":
+    main()

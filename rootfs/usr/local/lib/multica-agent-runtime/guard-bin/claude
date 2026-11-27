@@ -1,4 +1,4 @@
 #!/bin/sh
-# MULTICA_CLAUDE_PATH target with CLAUDE_RESUME_GUARD on: replaces a cold, big --resume by a fresh session
-# with a hand-off, then execs CLAUDE_RESUME_GUARD_NEXT (the sandbox shim or the real claude)
-exec /usr/local/bin/claude-resume-guard "$@"
+# MULTICA_CLAUDE_PATH target (COLD_RESUME, default on): declines a resume whose prompt cache is gone so Multica
+# starts fresh with a hand-off, otherwise execs COLD_RESUME_NEXT (the sandbox shim or the real claude)
+exec /usr/local/bin/multica-cold-resume "$@"
