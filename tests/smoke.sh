@@ -90,6 +90,40 @@ bash -c '. /usr/local/lib/multica-agent-runtime/common.sh; . /usr/local/lib/mult
 step "doctor"
 runtime-doctor
 
+step "webui (management UI)"
+python3 /tests/webui.py 2>&1 | tail -n 4
+WEBUI_ROOT=$OUT/webui-root
+mkdir -p "$WEBUI_ROOT/demo-123456789abc/home-1-0123456789ab/workdir" \
+  "$WEBUI_ROOT/old-777777777777/home-2-aaaaaaaaaaaa/workdir"
+dd if=/dev/zero of="$WEBUI_ROOT/demo-123456789abc/home-1-0123456789ab/workdir/blob.bin" bs=1M count=2 status=none
+dd if=/dev/zero of="$WEBUI_ROOT/old-777777777777/home-2-aaaaaaaaaaaa/workdir/blob.bin" bs=1M count=1 status=none
+touch -d '3 days ago' "$WEBUI_ROOT/old-777777777777/home-2-aaaaaaaaaaaa/workdir/blob.bin" \
+  "$WEBUI_ROOT/old-777777777777/home-2-aaaaaaaaaaaa/workdir" \
+  "$WEBUI_ROOT/old-777777777777/home-2-aaaaaaaaaaaa" "$WEBUI_ROOT/old-777777777777"
+WEBUI_WORKSPACES_ROOT=$WEBUI_ROOT WEBUI_DAEMON_URL=http://127.0.0.1:9 WEBUI_RESOLVE_NAMES=0 \
+  python3 /usr/local/lib/multica-agent-runtime/webui/server.py --bind 127.0.0.1 --port 18090 &
+webui_pid=$!
+for _ in $(seq 30); do curl -fsS -o /dev/null http://127.0.0.1:18090/api/health && break; sleep 0.5; done
+curl -fsS -o "$OUT/webui-index.html" http://127.0.0.1:18090/ || fail "webui is not reachable"
+grep -q 'Runtime management' "$OUT/webui-index.html" || fail "webui does not serve the page"
+curl -fsS -o /dev/null http://127.0.0.1:18090/vendor/xterm.js || fail "webui does not serve xterm.js"
+curl -fsS http://127.0.0.1:18090/api/system | jq -e '.processes.count > 0' >/dev/null || fail "webui /api/system"
+curl -fsS http://127.0.0.1:18090/api/agents | jq -e 'has("tasks") and has("process_view")' >/dev/null || fail "webui /api/agents"
+curl -fsS 'http://127.0.0.1:18090/api/env?source=webui' | jq -e '.count > 0' >/dev/null || fail "webui /api/env"
+curl -fsS http://127.0.0.1:18090/api/maintenance | jq -e '.docker and .nix.available and (.settings.enabled | not)' >/dev/null \
+  || fail "webui /api/maintenance"
+curl -fsS http://127.0.0.1:18090/api/usage | jq -e '.windows["30d"] and (.daily | length == 14)' >/dev/null || fail "webui /api/usage"
+curl -fsS -o "$OUT/webui-workspaces.json" http://127.0.0.1:18090/api/workspaces || fail "webui API is not reachable"
+jq -e '.workspaces | length == 2 and (map(.deletable) | any) and (map(.in_use) | any)' \
+  "$OUT/webui-workspaces.json" >/dev/null || fail "webui API does not report the expected workspaces"
+/opt/google/chrome/chrome --headless --disable-gpu --hide-scrollbars --window-size=1400,900 \
+  --virtual-time-budget=5000 --screenshot="$OUT/webui.png" http://127.0.0.1:18090/ 2>/dev/null || true
+[ -s "$OUT/webui.png" ] || fail "no webui screenshot"
+/opt/google/chrome/chrome --headless --disable-gpu --hide-scrollbars --window-size=1400,900 \
+  --virtual-time-budget=5000 --screenshot="$OUT/webui-workspaces.png" 'http://127.0.0.1:18090/#workspaces' 2>/dev/null || true
+kill "$webui_pid" 2>/dev/null || true
+wait "$webui_pid" 2>/dev/null || true
+
 if [ "$VARIANT" = cuda ]; then
   step "cuda image"
   nvidia-ctk --version

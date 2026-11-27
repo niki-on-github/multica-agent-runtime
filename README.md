@@ -3,7 +3,8 @@
 Container images that run the [Multica](https://github.com/multica-ai/multica) agent daemon with
 **Claude Code**, **Codex**, **OpenCode 2**, **Pi** and **Oh My Pi**, made for Kubernetes: Docker-in-Docker (rootless or
 rootful), a CUDA variant with GPU access for nested containers, Chrome for Testing + Playwright for
-browser tests, Nix with configurable caches, `gh` and `tea`, and a web terminal for the CLI logins.
+browser tests, Nix with configurable caches, `gh` and `tea`, a web terminal for the CLI logins, and a
+management web UI that deletes the workspace data of finished tasks.
 
 ```
 ghcr.io/niki-on-github/multica-agent-runtime:<multica-version>-<variant>[-<sha7>]
@@ -73,6 +74,7 @@ detect a separate `opencode2` runtime.
 |---|---|
 | `daemon` (default) | `multica login --token $MULTICA_TOKEN`, then `multica daemon start --foreground`; starts Docker per `DIND_MODE` (default `auto`). Without a token it logs a hint and waits. |
 | `shell` | web terminal (`ttyd`) on `$TTYD_PORT` (7681): a login shell per browser tab; `https://<host>/?arg=tmux` attaches the persistent tmux session `main` instead. Uses an existing Docker daemon, never starts one. **No authentication of its own**, see [Web shell](#web-shell). |
+| `webui` | management web UI on `$WEBUI_PORT` (8090): agent tasks, resource usage, workspace cleanup and browser terminals, see [Management web UI](#management-web-ui). Uses an existing Docker daemon, never starts one. |
 | `doctor [--gpu] [--json] [--strict]` | runtime check |
 | anything else | runs it after the same setup (`DIND_MODE` default `off`) |
 
@@ -97,6 +99,129 @@ Use TLS (the terminal and OAuth codes go over the WebSocket), allow only the pro
 (NetworkPolicy), and do not add exceptions for "internal" IPs. Without such a proxy use
 `kubectl port-forward` / `docker run -p 127.0.0.1:7681:7681`, or as a minimal fallback ttyd's basic
 auth: `TTYD_ARGS="--credential user:password"` (over TLS only).
+
+## Management web UI
+
+`webui` serves a management page for the runtime: one page, Python standard library plus xterm.js
+from the image, no build step, no Multica server access (it is deliberately not part of the Multica
+UI). Five views:
+
+- **Overview**: the **agents** (Claude Code, Codex, OpenCode, Pi, Oh My Pi: version, login, registered
+  with the daemon, running tasks), **Claude Code usage** (below), the daemon's status (`/health`: id,
+  version, uptime, running/active tasks), the **running agent tasks** (each agent CLI with its task directory, issue, model, and the CPU and
+  memory of its whole process tree), resource usage with 6-minute history (node CPU and memory, CPU
+  of the runtime's processes, network), filesystems, this container's cgroup limits, GPUs
+  (`nvidia-smi`), the nested Docker containers and the top processes.
+- **Workspaces**: the data below `/data/workspaces` per workspace and per **task directory** (size,
+  last activity, issue/agent, status **Deletable** / **In use** / **Protected**). Delete single task
+  directories, all idle tasks of a workspace, or whole workspaces that are not in use.
+- **Maintenance**: free space — delete task data unused for N days, `docker … prune` (stopped
+  containers, dangling or all unused images, networks, build cache, optionally anonymous volumes,
+  everything with an age filter), Nix garbage collection (`nix-collect-garbage --delete-older-than`),
+  empty `.webui-trash`. Each step can be previewed or run now, and all of them run **automatically**
+  on a schedule (daily at a time, or every N hours) with the options set in the page. Settings and the
+  run history live in `~/.local/state/multica-webui/maintenance.json` (`WEBUI_STATE_DIR`); the
+  `WEBUI_AUTO_CLEANUP*` / `WEBUI_CLEANUP_*` variables only give the defaults of a fresh file.
+- **Environment**: the environment variables of this container, the Multica daemon and each running
+  agent task (from `/proc/<pid>/environ`: what the agent CLI really got, after the sandbox's env
+  filter; "differs" marks values that are not the same as in the webui container). Secrets — names
+  like `*TOKEN*`, `*KEY*`, `*SECRET*`, `*PASSWORD*`, token-looking values, passwords in URLs — are
+  masked; **Reveal** / **Copy** fetch one value with a separate, CSRF-guarded and logged request.
+  `WEBUI_AUTH*` is never shown. `WEBUI_ENV=masked` (or read-only mode) disables revealing,
+  `WEBUI_ENV=0` the whole view.
+- **Terminal**: browser terminals (xterm.js over a WebSocket to a PTY), several at once as tabs: a
+  login shell, the shared tmux session `main` (the same one as `shell`'s `?arg=tmux`), or a shell
+  opened directly in a task's directory ("Shell" in the agent and workspace lists).
+
+**Claude Code usage** is computed from Claude Code's own session transcripts
+(`~/.claude/projects/**/*.jsonl` and the sandbox's `/data/agent-homes/*/.claude`, one usage record per
+API response): tokens of the current 5-hour block (with its reset time), today, 7 and 30 days, per
+day and per model, plus the login (subscription type). Nothing is sent anywhere. The plan's
+percentage limits (`/usage` in Claude Code) are not in those files, so they are not shown.
+
+The simplest setup runs the UI **inside the daemon container**: `WEBUI_EMBEDDED=1` on the `daemon`
+command starts it next to the daemon (restarted if it crashes). It then sees the daemon's processes
+and task locks, the Nix store the agents use, and that container's cgroup — no shared PID namespace
+needed. As its own container in the pod instead, share `/data`, `/home/agent` and `/run/agent`, and
+set `shareProcessNamespace: true` on the pod so that it sees the daemon's processes (see
+[What "in use" means](#what-in-use-means)); its Nix GC then only cleans its own `/nix` (each container
+has its own, the page says so):
+
+```sh
+docker build --build-arg VARIANT=cpu -t agent-runtime:webui .   # or your own pushed image
+docker run -d --name multica-webui -p 127.0.0.1:8090:8090 \
+  --pid container:<daemon container> \
+  -v agent-data:/data -v agent-home:/home/agent -v agent-run:/run/agent \
+  -e WEBUI_AUTH=admin:change-me \
+  agent-runtime:webui webui
+```
+
+```yaml
+spec:
+  shareProcessNamespace: true      # the webui sees the daemon's tasks (processes and task locks)
+  containers:
+    - name: webui
+      image: <your registry>/multica-agent-runtime:webui   # built from this fork (see above)
+      args: ["webui"]
+      ports: [{name: webui, containerPort: 8090}]
+      env:
+        - {name: WEBUI_AUTH, valueFrom: {secretKeyRef: {name: multica-webui, key: auth}}}
+        - {name: MULTICA_DAEMON_PORT, value: "19514"}   # daemon status, same pod
+      envFrom:
+        - secretRef: {name: multica-runner}             # the terminal's shells get the same tokens
+      securityContext: {runAsUser: 1000, runAsGroup: 1000, allowPrivilegeEscalation: false}
+      volumeMounts:
+        - {name: data, mountPath: /data}
+        - {name: home, mountPath: /home/agent}
+        - {name: run, mountPath: /run/agent}            # Docker socket of the app container
+```
+
+The resource numbers come from `/proc` and `/sys/fs/cgroup` as this container sees them: node CPU and
+memory (unless lxcfs virtualises them), the processes of its PID namespace (with a shared one: the
+whole pod - daemon, agents, browsers, tools), and the cgroup limits of the webui container itself.
+
+### What "in use" means
+
+The state is computed per task directory, and checked again immediately before deleting:
+
+| Signal | |
+|---|---|
+| a live process has its working directory or an open file inside the task directory | a running agent task (a webui terminal shows as "web terminal") |
+| the task's `.task_lock` is locked (`/proc/locks`, any lock type) | the daemon is working on that task |
+| the newest file is younger than `WEBUI_ACTIVITY_GRACE` (default 300 s) | just finished, or an idle moment of a running task |
+| **blind mode**: the daemon's process is not visible from here and the daemon does not report 0 running tasks — then anything changed within `WEBUI_BLIND_GRACE` (default 6 h) | the UI runs without a shared PID namespace: processes and locks of other containers are invisible |
+
+A workspace is in use when one of its tasks is (or something else in it is). The page shows a banner
+in blind mode; fix it with `shareProcessNamespace: true` (or `--pid container:<daemon>` with Docker).
+`WEBUI_ASSUME_SHARED_PID=1` turns blind mode off when you know better, `WEBUI_BLIND_GRACE=0` too.
+
+Anything that cannot be deleted on purpose goes into `WEBUI_PROTECT_WORKSPACES` (comma separated ids,
+slugs or directory names). `WEBUI_READ_ONLY=1` disables deletion and the terminal (a pure overview).
+
+Deletion renames the directory into `<root>/.webui-trash` first: atomic, so the daemon never sees a
+half-deleted task (use `WEBUI_KEEP_TRASH_HOURS` to undo a mistake, and see the leftovers there for
+files a nested rootful container created as root — the agent user cannot remove those). Symlinks inside
+are removed, never followed. Only the local data is deleted; the workspace, issues and agents stay in
+Multica, and the daemon creates new directories for the next task (a deleted task directory cannot be
+resumed by a later run of the same issue).
+
+### Security
+
+The page deletes data and opens shells as the agent user (with every token in its environment and
+Docker access), so it needs a login: without `WEBUI_AUTH` (or `WEBUI_AUTH_FILE`) the server binds to
+`127.0.0.1` or refuses to start. With an **authenticating reverse proxy** in front — as for the
+[web shell](#web-shell) — set `WEBUI_INSECURE=1` and keep the port off the network with a
+NetworkPolicy. `WEBUI_AUTH` is HTTP Basic auth, so put TLS in front of it, never plain HTTP over a
+network. `WEBUI_SHELL=0` removes the terminal.
+
+The page loads nothing from the internet and runs under a CSP without inline scripts. Deletions need a
+same-origin request with the page's `X-WebUI` header, and the terminal WebSocket is only accepted with
+an `Origin` header of the page itself (a WebSocket is not covered by CORS: without that check any site
+could open a shell with the browser's cached credentials). Behind a proxy that rewrites `Host`, list
+the public origin in `WEBUI_ALLOWED_ORIGINS` (e.g. `https://runner.example.com`).
+
+A task that starts in the milliseconds between the check and the rename cannot be prevented, but it
+would just recreate the directory.
 
 ## Logins and persistence
 
@@ -287,6 +412,18 @@ Nothing is baked in; the standard variables are read natively:
 | `DOCKERD_ROOTLESS_ROOTLESSKIT_NET` | `slirp4netns` | rootless network driver (`pasta` also installed) |
 | `NVIDIA_CDI_ARGS` | – | extra `nvidia-ctk cdi generate` flags |
 | `TTYD_PORT`, `TTYD_ARGS` | `7681` | web shell |
+| `WEBUI_PORT`, `WEBUI_BIND`, `WEBUI_AUTH`, `WEBUI_AUTH_FILE` | `8090`, `0.0.0.0`, – | management web UI: port, listen address, `user:password` (or a file with that line); without auth it only starts on a loopback address or with `WEBUI_INSECURE=1` |
+| `WEBUI_WORKSPACES_ROOT`, `WEBUI_PROTECT_WORKSPACES`, `WEBUI_ACTIVITY_GRACE` | `$MULTICA_WORKSPACES_ROOT`, –, `300` | web UI: scanned root, never deletable ids/slugs/dirs, seconds of recent activity that count as "in use" |
+| `WEBUI_TRASH`, `WEBUI_KEEP_TRASH_HOURS`, `WEBUI_READ_ONLY`, `WEBUI_RESOLVE_NAMES`, `WEBUI_DAEMON_URL` | `1`, `0`, `off`, `1`, `http://127.0.0.1:$MULTICA_DAEMON_PORT` | web UI: delete through `.webui-trash`, trash retention, disable deletion, resolve names via `multica workspace list`, daemon status source |
+| `WEBUI_CACHE_SECONDS`, `WEBUI_SCAN_BUDGET` | `8`, `120` | web UI: how long a scan is reused, seconds the size scan of one render may take |
+| `WEBUI_BLIND_GRACE`, `WEBUI_ASSUME_SHARED_PID` | `21600`, `0` | web UI: "in use" window when the daemon's processes are not visible (no shared PID namespace), treat the PID namespace as shared anyway |
+| `WEBUI_EMBEDDED` | `0` | `daemon` command: also run the management web UI in this container |
+| `WEBUI_STATE_DIR`, `WEBUI_AUTO_CLEANUP`, `WEBUI_CLEANUP_AT`, `WEBUI_CLEANUP_EVERY_HOURS` | `~/.local/state/multica-webui`, `0`, `04:00`, `0` | web UI maintenance: settings/history file, defaults of a fresh file: schedule on, daily time, or every N hours instead |
+| `WEBUI_CLEANUP_WORKSPACE_DAYS`, `WEBUI_CLEANUP_DOCKER_HOURS`, `WEBUI_CLEANUP_NIX_DAYS` | `7`, `72`, `14` | defaults: task data unused for N days, Docker objects older than N hours, Nix generations older than N days |
+| `WEBUI_CLAUDE_DIRS` | `$CLAUDE_CONFIG_DIR`, `/data/agent-homes/*/.claude` | Claude Code config dirs whose transcripts count for the usage card |
+| `WEBUI_ENV` | `1` | web UI environment view: `1` masked listing + reveal, `masked` listing only, `0` off |
+| `WEBUI_SHELL`, `WEBUI_SHELL_MAX`, `WEBUI_ALLOWED_ORIGINS` | `1`, `8`, – | web UI terminal: on/off, concurrent sessions, extra allowed `Origin`s (comma separated) behind a proxy that rewrites `Host` |
+| `WEBUI_SAMPLE_SECONDS`, `WEBUI_HISTORY`, `WEBUI_DISKS`, `WEBUI_DOCKER`, `WEBUI_XTERM_DIR` | `2`, `180`, `/data,/home/agent,/nix,/tmp`, `1`, `/usr/local/lib/node_modules` | web UI: resource sampling interval, samples kept, filesystems shown, list Docker containers, where `@xterm/xterm` is installed |
 | `CHROME_EXTRA_ARGS` | – | extra Chrome flags |
 | `AGENT_SANDBOX` | `off` | `on` / `required`: each task's CLI in bubblewrap, see [Task sandbox](#task-sandbox) |
 | `AGENT_SANDBOX_PASS_ENV` | – | secret-looking variables passed into the sandbox (comma separated) |
@@ -307,12 +444,16 @@ example Deployment with the daemon and the web shell.
 
 - `Dockerfile`: one file, `--build-arg VARIANT=cpu|cuda`; pinned versions in `ARG`s with
   `# renovate:` comments
-- `rootfs/`: entrypoint, libraries, doctor, skeleton, Nix config, agent guide
+- `rootfs/`: entrypoint, libraries, doctor, skeleton, Nix config, agent guide; `rootfs/usr/local/lib/
+  multica-agent-runtime/webui/` is the management web UI (server, terminal, resource sampler, one-page
+  frontend)
 - `tests/smoke.sh`: run by CI as the image command in three setups (plain, rootful, rootless); with
   Docker it builds a web image, runs it, and tests it with Playwright in Chrome (screenshots are
   uploaded as artifacts); the cuda job also builds a CUDA image. In the two Docker setups
   `tests/sandbox.sh` checks the task sandbox against a simulated task (isolation, env filter,
-  refusals, probes, cancellation, Docker from inside)
+  refusals, probes, cancellation, Docker from inside); `tests/webui.py` (standard library only) tests
+  the management web UI (in-use detection, deletion, terminal WebSocket, status API) against a
+  throw-away workspaces root
 - `.github/workflows/build.yml`: matrix `cpu`/`cuda`, build → smoke tests → push (main only)
 - Renovate (`renovate.json`) updates everything (base images, Multica, agent CLIs, Chrome, Docker,
   NVIDIA toolkit, release binaries, actions, majors included) in **one PR** ("all dependencies"),

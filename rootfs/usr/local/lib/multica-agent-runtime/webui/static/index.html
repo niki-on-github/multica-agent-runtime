@@ -1,0 +1,477 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="dark" />
+    <title>Runtime management · multica-agent-runtime</title>
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/vendor/xterm.css" />
+    <link rel="stylesheet" href="/style.css" />
+  </head>
+  <body>
+    <div class="app">
+      <header class="topbar">
+        <div class="brand">
+          <div class="mark" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M3 7.5 12 3l9 4.5v9L12 21l-9-4.5z" />
+              <path d="M3 7.5 12 12l9-4.5M12 12v9" />
+            </svg>
+          </div>
+          <div>
+            <h1>Runtime management</h1>
+            <p class="sub">multica-agent-runtime · <span id="deviceName">…</span></p>
+          </div>
+        </div>
+
+        <nav class="tabs" aria-label="Views">
+          <a href="#overview" data-view="overview" class="tab active">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12h4l3 8 4-16 3 8h4" /></svg>
+            Overview
+          </a>
+          <a href="#workspaces" data-view="workspaces" class="tab">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7.5A1.5 1.5 0 0 1 4.5 6h4l2 2.5h9A1.5 1.5 0 0 1 21 10v8a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 18z" /></svg>
+            Workspaces
+          </a>
+          <a href="#maintenance" data-view="maintenance" class="tab">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18l3 3 6.3-6.3a4 4 0 0 0 5.4-5.4l-2.5 2.5-2.4-.6-.6-2.4z" /></svg>
+            Maintenance <span class="count" id="mntBadge" hidden>●</span>
+          </a>
+          <a href="#env" data-view="env" class="tab">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 4H6a2 2 0 0 0-2 2v4l-2 2 2 2v4a2 2 0 0 0 2 2h2M16 4h2a2 2 0 0 1 2 2v4l2 2-2 2v4a2 2 0 0 1-2 2h-2" /></svg>
+            Environment
+          </a>
+          <a href="#terminal" data-view="terminal" class="tab">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 8 4 4-4 4M12 17h7" /></svg>
+            Terminal <span class="count" id="termCount" hidden>0</span>
+          </a>
+        </nav>
+
+        <div class="topbar-right">
+          <div class="daemon" id="daemon" title="Multica daemon (local)">
+            <span class="dot"></span><span id="daemonText">daemon unknown</span>
+          </div>
+          <button class="btn ghost icon-only" id="refresh" type="button" title="Refresh" aria-label="Refresh">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+              <path d="M21 12a9 9 0 1 1-2.64-6.36M21 3v6h-6" />
+            </svg>
+          </button>
+        </div>
+      </header>
+
+      <div class="banner warn" id="blindBanner" hidden>
+        <span class="banner-icon" aria-hidden="true">!</span>
+        <span id="blindText"></span>
+      </div>
+
+      <!-- ===== Overview ===================================================================== -->
+      <main class="view" id="view-overview">
+        <section class="stats kpis" aria-label="Resource usage">
+          <article class="stat" id="kpiCpu">
+            <span class="label">CPU</span>
+            <strong class="value">–</strong>
+            <span class="hint">–</span>
+            <div class="spark" data-series="host_cpu"></div>
+          </article>
+          <article class="stat" id="kpiMem">
+            <span class="label">Memory</span>
+            <strong class="value">–</strong>
+            <span class="hint">–</span>
+            <div class="spark" data-series="mem_used"></div>
+          </article>
+          <article class="stat" id="kpiProcs">
+            <span class="label">Runtime processes</span>
+            <strong class="value">–</strong>
+            <span class="hint">–</span>
+            <div class="spark" data-series="procs_cores"></div>
+          </article>
+          <article class="stat" id="kpiNet">
+            <span class="label">Network in</span>
+            <strong class="value">–</strong>
+            <span class="hint">–</span>
+            <div class="spark" data-series="rx"></div>
+          </article>
+        </section>
+
+        <div class="grid">
+          <section class="panel card span-3">
+            <div class="card-head">
+              <h3>Agents</h3>
+              <span class="muted">agent CLIs in this image · login · running tasks</span>
+            </div>
+            <div class="agent-grid" id="agentClis"></div>
+          </section>
+
+          <section class="panel card span-3" id="usageCard">
+            <div class="card-head">
+              <h3>Claude Code usage</h3>
+              <span class="muted" id="usageLogin">–</span>
+            </div>
+            <div class="usage">
+              <div class="usage-tiles" id="usageTiles"></div>
+              <div class="usage-chart">
+                <div class="usage-chart-head"><span>Tokens per day · last 14 days</span><span class="muted" id="usageModels"></span></div>
+                <div class="bars" id="usageBars"></div>
+              </div>
+            </div>
+          </section>
+
+          <section class="panel card span-2">
+            <div class="card-head">
+              <h3>Agent tasks</h3>
+              <span class="muted" id="agentsHint">running agent CLIs and their process trees</span>
+            </div>
+            <div class="table-wrap">
+              <table class="compact">
+                <thead>
+                  <tr>
+                    <th>Agent</th>
+                    <th>Task</th>
+                    <th class="num">CPU</th>
+                    <th class="num">Memory</th>
+                    <th class="num">Procs</th>
+                    <th>Running</th>
+                    <th><span class="sr">Actions</span></th>
+                  </tr>
+                </thead>
+                <tbody id="agentRows"></tbody>
+              </table>
+              <div class="empty small" id="agentEmpty" hidden><p>No agent task is running.</p></div>
+            </div>
+          </section>
+
+          <section class="panel card">
+            <div class="card-head"><h3>Daemon</h3><span class="pill" id="daemonPill">–</span></div>
+            <dl class="kv" id="daemonInfo"></dl>
+          </section>
+
+          <section class="panel card">
+            <div class="card-head"><h3>Storage</h3><span class="muted">filesystems</span></div>
+            <div class="meters" id="disks"></div>
+          </section>
+
+          <section class="panel card">
+            <div class="card-head"><h3>Limits</h3><span class="muted">this container (cgroup)</span></div>
+            <dl class="kv" id="limits"></dl>
+            <div class="meters" id="gpus"></div>
+          </section>
+
+          <section class="panel card">
+            <div class="card-head"><h3>Docker</h3><span class="muted" id="dockerHint">nested containers</span></div>
+            <ul class="list" id="dockerList"></ul>
+          </section>
+
+          <section class="panel card span-3">
+            <div class="card-head">
+              <h3>Top processes</h3>
+              <span class="muted" id="procHint">by CPU</span>
+            </div>
+            <div class="table-wrap">
+              <table class="compact">
+                <thead>
+                  <tr>
+                    <th class="num">PID</th>
+                    <th>Process</th>
+                    <th class="num">CPU</th>
+                    <th class="num">Memory</th>
+                    <th class="num">Threads</th>
+                    <th>Running</th>
+                  </tr>
+                </thead>
+                <tbody id="procRows"></tbody>
+              </table>
+            </div>
+          </section>
+        </div>
+      </main>
+
+      <!-- ===== Workspaces =================================================================== -->
+      <main class="view" id="view-workspaces" hidden>
+        <section class="stats" aria-label="Summary">
+          <article class="stat">
+            <span class="label">Total data</span>
+            <strong id="statSize">–</strong>
+            <span class="hint" id="statSizeHint">scanning…</span>
+          </article>
+          <article class="stat">
+            <span class="label">Workspaces</span>
+            <strong id="statCount">–</strong>
+            <span class="hint" id="statTaskHint">–</span>
+          </article>
+          <article class="stat">
+            <span class="label">In use</span>
+            <strong id="statInUse">–</strong>
+            <span class="hint" id="statInUseHint">running tasks, recent activity</span>
+          </article>
+          <article class="stat accent">
+            <span class="label">Reclaimable</span>
+            <strong id="statReclaim">–</strong>
+            <span class="hint" id="statReclaimHint">idle task data</span>
+          </article>
+        </section>
+
+        <section class="panel">
+          <div class="toolbar">
+            <label class="search">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+                <circle cx="11" cy="11" r="7" /><path d="m20 20-3.2-3.2" />
+              </svg>
+              <input id="search" type="search" placeholder="Search workspace, id, task or issue…" autocomplete="off" spellcheck="false" />
+            </label>
+
+            <div class="segmented" role="group" aria-label="Filter">
+              <button type="button" data-filter="all" class="active">All <span class="count" id="countAll">0</span></button>
+              <button type="button" data-filter="idle">Deletable <span class="count" id="countIdle">0</span></button>
+              <button type="button" data-filter="in-use">In use <span class="count" id="countInUse">0</span></button>
+            </div>
+
+            <label class="check" id="selectIdleWrap">
+              <input type="checkbox" id="selectIdle" />
+              Select idle tasks
+            </label>
+
+            <div class="spacer"></div>
+
+            <button class="btn danger" id="deleteSelected" type="button" disabled>Delete selected</button>
+          </div>
+
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th class="c-check"><span class="sr">Select</span></th>
+                  <th>Workspace</th>
+                  <th class="num">Data</th>
+                  <th class="num tasks-col">Tasks</th>
+                  <th class="age-col">Last activity</th>
+                  <th>Status</th>
+                  <th><span class="sr">Actions</span></th>
+                </tr>
+              </thead>
+              <tbody id="rows"></tbody>
+            </table>
+            <div class="empty" id="empty" hidden>
+              <div class="empty-mark" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7.5A1.5 1.5 0 0 1 4.5 6h4l2 2.5h7A1.5 1.5 0 0 1 19 10v8a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 3 18z"/></svg>
+              </div>
+              <p id="emptyText">No workspaces found.</p>
+              <p class="muted" id="emptyHint">Workspace data that no task uses can be deleted here.</p>
+            </div>
+          </div>
+
+          <footer class="panel-foot">
+            <span id="footNote">Deletion removes the local data only; the daemon creates new directories for the next task.</span>
+            <span class="muted" id="generatedAt"></span>
+          </footer>
+        </section>
+
+        <p class="legal">
+          Safety: nothing is deletable while a process runs in it, its task lock is held, or it changed within
+          the activity grace period. Root path <code id="rootPath">…</code>
+        </p>
+      </main>
+
+      <!-- ===== Maintenance ================================================================== -->
+      <main class="view" id="view-maintenance" hidden>
+        <div class="banner info" id="mntRunning" hidden>
+          <span class="spinner" aria-hidden="true"></span><span id="mntRunningText">Cleanup running…</span>
+        </div>
+        <div class="grid">
+          <section class="panel card">
+            <div class="card-head"><h3>Workspaces</h3><span class="muted" id="mntWsHint">old task data</span></div>
+            <dl class="kv" id="mntWs"></dl>
+            <div class="card-actions">
+              <button class="btn small ghost" data-mnt-run="workspaces" data-dry="1">Preview</button>
+              <button class="btn small danger" data-mnt-run="workspaces">Clean up now</button>
+            </div>
+          </section>
+          <section class="panel card">
+            <div class="card-head"><h3>Docker</h3><span class="muted" id="mntDockerHint">nested containers, images, build cache</span></div>
+            <div class="table-wrap"><table class="compact mini"><thead><tr><th>Type</th><th class="num">Size</th><th class="num">Reclaimable</th></tr></thead><tbody id="mntDocker"></tbody></table></div>
+            <div class="card-actions">
+              <button class="btn small ghost" data-mnt-run="docker" data-dry="1">Preview</button>
+              <button class="btn small danger" data-mnt-run="docker">Prune now</button>
+            </div>
+          </section>
+          <section class="panel card">
+            <div class="card-head"><h3>Nix store</h3><span class="muted" id="mntNixHint">/nix</span></div>
+            <dl class="kv" id="mntNix"></dl>
+            <div class="card-actions">
+              <button class="btn small ghost" data-mnt-run="nix" data-dry="1">Preview</button>
+              <button class="btn small danger" data-mnt-run="nix">Collect garbage</button>
+            </div>
+          </section>
+
+          <section class="panel card span-3">
+            <div class="card-head">
+              <h3>Automatic cleanup</h3>
+              <span class="muted" id="mntNext">–</span>
+            </div>
+            <form class="settings" id="mntForm" autocomplete="off">
+              <div class="settings-row">
+                <label class="switch"><input type="checkbox" name="enabled" /><span>Run automatically</span></label>
+                <label class="field">Schedule
+                  <select name="schedule.mode" class="select small-select">
+                    <option value="daily">daily at</option>
+                    <option value="interval">every N hours</option>
+                  </select>
+                </label>
+                <label class="field" data-show="daily">Time <input type="time" name="schedule.time" /></label>
+                <label class="field" data-show="interval">Hours <input type="number" min="1" max="720" name="schedule.every_hours" /></label>
+              </div>
+              <div class="settings-grid">
+                <fieldset>
+                  <legend><label class="switch"><input type="checkbox" name="workspaces.enabled" /><span>Workspace data</span></label></legend>
+                  <label class="field">Delete task directories unused for <input type="number" min="0.5" step="0.5" name="workspaces.older_than_days" /> days</label>
+                  <label class="check"><input type="checkbox" name="workspaces.empty_workspaces" /> also empty workspace directories</label>
+                  <p class="muted small">Never anything in use — the same checks as a manual delete.</p>
+                </fieldset>
+                <fieldset>
+                  <legend><label class="switch"><input type="checkbox" name="docker.enabled" /><span>Docker prune</span></label></legend>
+                  <label class="field">Objects older than <input type="number" min="1" name="docker.older_than_hours" /> hours</label>
+                  <label class="field">Images
+                    <select name="docker.images" class="select small-select">
+                      <option value="dangling">dangling only</option>
+                      <option value="unused">all unused</option>
+                      <option value="none">keep</option>
+                    </select>
+                  </label>
+                  <label class="check"><input type="checkbox" name="docker.containers" /> stopped containers</label>
+                  <label class="check"><input type="checkbox" name="docker.build_cache" /> build cache</label>
+                  <label class="check"><input type="checkbox" name="docker.networks" /> unused networks</label>
+                  <label class="check"><input type="checkbox" name="docker.volumes" /> unused anonymous volumes (no age filter)</label>
+                </fieldset>
+                <fieldset>
+                  <legend><label class="switch"><input type="checkbox" name="nix.enabled" /><span>Nix garbage collection</span></label></legend>
+                  <label class="field">Delete profile generations older than <input type="number" min="0" name="nix.older_than_days" /> days</label>
+                  <p class="muted small">Then everything unreachable in the store is removed (<code>nix-collect-garbage</code>).</p>
+                </fieldset>
+                <fieldset>
+                  <legend><label class="switch"><input type="checkbox" name="trash.enabled" /><span>Empty .webui-trash</span></label></legend>
+                  <p class="muted small" id="mntTrash">–</p>
+                </fieldset>
+              </div>
+              <div class="settings-actions">
+                <span class="muted small" id="mntStateFile"></span>
+                <div class="spacer"></div>
+                <button class="btn small ghost" type="button" data-mnt-run="" data-dry="1">Preview all</button>
+                <button class="btn small ghost" type="button" data-mnt-run="">Run all enabled now</button>
+                <button class="btn small" type="submit" id="mntSave">Save settings</button>
+              </div>
+            </form>
+          </section>
+
+          <section class="panel card span-3">
+            <div class="card-head"><h3>History</h3><span class="muted">last runs</span></div>
+            <div class="table-wrap">
+              <table class="compact">
+                <thead><tr><th>Started</th><th>Trigger</th><th>Steps</th><th class="num">Freed</th><th class="num">Duration</th></tr></thead>
+                <tbody id="mntHistory"></tbody>
+              </table>
+              <div class="empty small" id="mntHistoryEmpty" hidden><p>No cleanup has run yet.</p></div>
+            </div>
+          </section>
+        </div>
+      </main>
+
+      <!-- ===== Environment ================================================================== -->
+      <main class="view" id="view-env" hidden>
+        <section class="panel">
+          <div class="toolbar">
+            <select id="envSource" class="select" aria-label="Environment of"></select>
+            <label class="search">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+                <circle cx="11" cy="11" r="7" /><path d="m20 20-3.2-3.2" />
+              </svg>
+              <input id="envSearch" type="search" placeholder="Filter by name or value…" autocomplete="off" spellcheck="false" />
+            </label>
+            <div class="segmented" role="group" aria-label="Filter">
+              <button type="button" data-env-filter="all" class="active">All <span class="count" id="envCountAll">0</span></button>
+              <button type="button" data-env-filter="secret">Secrets <span class="count" id="envCountSecret">0</span></button>
+              <button type="button" data-env-filter="differs" id="envDiffersBtn" hidden>Differs <span class="count" id="envCountDiffers">0</span></button>
+            </div>
+          </div>
+          <div class="table-wrap">
+            <table class="compact env-table">
+              <thead>
+                <tr>
+                  <th>Variable</th>
+                  <th>Value</th>
+                  <th><span class="sr">Actions</span></th>
+                </tr>
+              </thead>
+              <tbody id="envRows"></tbody>
+            </table>
+            <div class="empty small" id="envEmpty" hidden><p id="envEmptyText">No variables.</p></div>
+          </div>
+          <footer class="panel-foot">
+            <span id="envNote">Secrets are masked; revealing one value is logged by the server.</span>
+            <span class="muted" id="envGenerated"></span>
+          </footer>
+        </section>
+      </main>
+
+      <!-- ===== Terminal ===================================================================== -->
+      <main class="view" id="view-terminal" hidden>
+        <section class="panel term-panel">
+          <div class="term-bar">
+            <div class="term-tabs" id="termTabs" role="tablist"></div>
+            <div class="spacer"></div>
+            <select id="termMode" aria-label="Session type">
+              <option value="shell">Login shell</option>
+              <option value="tmux">tmux session “main”</option>
+            </select>
+            <button class="btn small" id="termNew" type="button">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
+              New session
+            </button>
+          </div>
+          <div class="term-stage" id="termStage">
+            <div class="empty" id="termEmpty">
+              <div class="empty-mark" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m5 8 4 4-4 4M12 17h7" /></svg>
+              </div>
+              <p id="termEmptyText">No terminal session open.</p>
+              <p class="muted" id="termEmptyHint">
+                A shell as the agent user in this container, with the same tools, logins and Docker as the tasks.
+                “Shell” in the agent and workspace lists opens one in that task's directory.
+              </p>
+            </div>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <dialog id="confirmDialog" class="dialog" aria-labelledby="confirmTitle">
+      <form method="dialog">
+        <h2 id="confirmTitle">Delete data</h2>
+        <p class="dialog-lead">This permanently removes the local data directories of:</p>
+        <ul class="dialog-list" id="confirmList"></ul>
+        <div class="warning">
+          Nested (rootful) containers may leave root-owned files behind; those stay in <code>.webui-trash</code> and are reported.
+        </div>
+        <label class="confirm-field">
+          <span id="confirmLabel">Type the directory name to confirm</span>
+          <input id="confirmInput" type="text" autocomplete="off" spellcheck="false" />
+        </label>
+        <div class="dialog-actions">
+          <button class="btn ghost" value="cancel" id="confirmCancel" type="button">Cancel</button>
+          <button class="btn danger" value="confirm" id="confirmDelete" type="submit" disabled>Delete</button>
+        </div>
+      </form>
+    </dialog>
+
+    <div class="tooltip" id="tooltip" role="tooltip" hidden></div>
+    <div class="toasts" id="toasts" aria-live="polite"></div>
+
+    <script src="/vendor/xterm.js"></script>
+    <script src="/vendor/addon-fit.js"></script>
+    <script src="/app.js"></script>
+    <script src="/overview.js"></script>
+    <script src="/workspaces.js"></script>
+    <script src="/terminal.js"></script>
+    <script src="/env.js"></script>
+    <script src="/maintenance.js"></script>
+  </body>
+</html>
