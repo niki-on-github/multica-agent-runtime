@@ -310,6 +310,46 @@ works with and without the task sandbox, and wraps a `MULTICA_CLAUDE_PATH` you s
 | the summary call hits a usage/rate limit | resumes unchanged (a resume fails the same way, and the daemon keeps its session) |
 | the summary call fails or takes longer than 180 s | the digest itself is the hand-off (`CLAUDE_RESUME_GUARD_FALLBACK=resume`: resumes unchanged) |
 
+```mermaid
+flowchart TD
+    D["Multica daemon starts a task<br/>MULTICA_CLAUDE_PATH = guard shim"] --> G{"claude-resume-guard:<br/>CLAUDE_RESUME_GUARD=off<br/>or no MULTICA_TASK_ID?"}
+    G -- yes --> RUN["exec next command unchanged<br/>sandbox shim or claude"]
+    G -- no --> R{"--resume &lt;id&gt; in the arguments?"}
+
+    R -- no --> P{"stored hand-off for<br/>this MULTICA_TASK_ID?"}
+    P -- no --> RUN
+    P -- yes --> FRESH["exec claude without --resume<br/>+ --append-system-prompt-file hand-off"]
+
+    R -- yes --> T{"transcript<br/>projects/&lt;cwd&gt;/&lt;id&gt;.jsonl exists?"}
+    T -- no --> RUN
+    T -- yes --> M["measure: context tokens from the last usage,<br/>idle time from the last timestamp"]
+    M --> C{"idle ≥ 30 min<br/>and ≥ 150k tokens?"}
+    C -- no --> RUN
+
+    C -- yes --> X["digest: user messages, replies, tools,<br/>files edited; no tool output; ≤ 60k tokens"]
+    X --> MODE{"CLAUDE_RESUME_GUARD"}
+    MODE -- digest --> DG["hand-off = digest ≤ 20k tokens"]
+    MODE -- summarize --> S["summary call: next command -p --model haiku<br/>no tools, MCP, hooks, session file; ≤ 180 s"]
+    S -- note written --> H["hand-off = summary"]
+    S -- "usage / rate limit" --> RUN
+    S -- "error or timeout" --> FB{"CLAUDE_RESUME_GUARD_FALLBACK"}
+    FB -- resume --> RUN
+    FB -- digest --> DG
+
+    H --> STORE["store hand-off per MULTICA_TASK_ID<br/>log line + events.jsonl"]
+    DG --> STORE
+    STORE --> ST{"CLAUDE_RESUME_GUARD_STRATEGY"}
+    ST -- replace --> FRESH
+    ST -- "reject (default)" --> REJ["print 'No conversation found with session ID: &lt;id&gt;'<br/>exit 1, Claude is not started"]
+    REJ --> DR["daemon: resume refused → retire the session,<br/>retry the task once without --resume,<br/>cold-start prompt + continuity notice"]
+    DR -- "same task, no --resume" --> G
+
+    FRESH --> NEW["Claude: fresh session, a few k tokens<br/>daemon stores the new session id"]
+```
+
+The summary call asks for `haiku` (`CLAUDE_RESUME_GUARD_MODEL`). That is Claude Code's alias for the current Haiku
+model; the guard does not check which model answered.
+
 The daemon then stores the new session for the issue. The old transcript stays on disk (`claude --resume <id>`
 in the web shell still opens it). The agent gets Multica's cold-start prompt (full comment reading) plus the
 note, which tells it to re-read the issue comments and the work tree. The task log shows the declined resume
