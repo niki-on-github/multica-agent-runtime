@@ -191,7 +191,7 @@ ARG CODEX_VERSION=0.172.0
 # renovate: datasource=npm depName=@opencode/cli
 ARG OPENCODE_VERSION=2.4.2
 # renovate: datasource=npm depName=@earendil-works/pi-coding-agent
-ARG PI_VERSION=1.6.1
+ARG PI_VERSION=1.7.0
 # Oh My Pi: the npm package needs Bun, so the standalone release binary instead (~280 MB)
 # renovate-digest: depName=can1357/oh-my-pi
 ARG OMP_VERSION=v19.2.1
