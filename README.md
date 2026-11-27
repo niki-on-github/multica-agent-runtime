@@ -306,17 +306,22 @@ works with and without the task sandbox, and wraps a `MULTICA_CLAUDE_PATH` you s
 | Situation | What happens |
 |---|---|
 | new session, no transcript, probe, warm (idle < 30 min) or small (< 150k tokens) | nothing: Claude starts unchanged |
-| cold and big | the transcript is cut down to a digest (user messages, replies, tools, files touched; no tool output, usually a few % of the context). A small model (`haiku`) turns it into a hand-off note, and Claude starts a **fresh session** with that note (`--append-system-prompt-file`) instead of `--resume` |
+| cold and big | the transcript is cut down to a digest (user messages, replies, tools, files touched; no tool output, usually a few % of the context), and a small model (`haiku`) turns it into a hand-off note. The guard then **declines the resume** the way Claude does for a missing session (`No conversation found with session ID: <id>`) without starting Claude. Multica (v0.13) treats that as a refused resume: it retires the session and retries the task once **without** it, with its own cold-start prompt and continuity notice. The guard gives that retry the hand-off note (`--append-system-prompt-file`) |
 | the summary call hits a usage/rate limit | resumes unchanged (a resume fails the same way, and the daemon keeps its session) |
-| the summary call fails or takes longer than 50 s | the digest itself is the hand-off (`CLAUDE_RESUME_GUARD_FALLBACK=resume`: resumes unchanged) |
-| the fresh run fails early and the daemon retries the task without a session | the retry gets the same hand-off |
+| the summary call fails or takes longer than 180 s | the digest itself is the hand-off (`CLAUDE_RESUME_GUARD_FALLBACK=resume`: resumes unchanged) |
 
 The daemon then stores the new session for the issue. The old transcript stays on disk (`claude --resume <id>`
-in the web shell still opens it). The agent is told it starts fresh and should re-read the issue comments and
-the work tree. Detail of the old conversation that is not in the note is lost: that is the trade-off for a cold
+in the web shell still opens it). The agent gets Multica's cold-start prompt (full comment reading) plus the
+note, which tells it to re-read the issue comments and the work tree. The task log shows the declined resume
+and Multica's "retrying with fresh session" next to the guard's line. Detail of the old conversation that is not in the note is lost: that is the trade-off for a cold
 start of a few thousand tokens instead of hundreds of thousands. Each decision is logged as one
 `claude-resume-guard:` line in the task log and in `~/.local/state/claude-resume-guard/events.jsonl` (`doctor`
-counts them). The 50 s limit exists because the daemon gives Claude's startup handshake 60 s.
+counts them). The declined first run never starts Claude, so the summary is not bound by the 60 s the daemon
+gives Claude's startup handshake.
+
+`CLAUDE_RESUME_GUARD_STRATEGY=replace` skips the round trip: Claude starts at once without `--resume` and with
+the note. Multica's prompt then still assumes a resumed session, and the summary has to fit that handshake
+(default timeout 50 s). Use it with a Multica version that does not retry a refused resume.
 
 ## Docker-in-Docker
 
@@ -458,7 +463,8 @@ Nothing is baked in; the standard variables are read natively:
 | `CLAUDE_CODE_AUTO_COMPACT_WINDOW` | `400000` unless set here or in Claude's settings | Claude auto-compacts at this context size; `off`: Claude's default, see [cold resumes](#claude-code-cold-resumes) |
 | `CLAUDE_RESUME_GUARD` | `summarize` | `digest` (no model call, the transcript extract is the hand-off) or `off`, see [cold resumes](#claude-code-cold-resumes) |
 | `CLAUDE_RESUME_GUARD_IDLE_MINUTES`, `CLAUDE_RESUME_GUARD_MIN_TOKENS` | `30`, `150000` | a resume counts as cold after this idle time and is replaced from this context size |
-| `CLAUDE_RESUME_GUARD_MODEL`, `CLAUDE_RESUME_GUARD_TIMEOUT`, `CLAUDE_RESUME_GUARD_FALLBACK` | `haiku`, `50`, `digest` | summary model, seconds for the summary call, what a failed summary falls back to (`digest` or `resume`) |
+| `CLAUDE_RESUME_GUARD_STRATEGY` | `reject` | `reject`: decline the resume so Multica retries with its cold-start prompt; `replace`: start fresh right away |
+| `CLAUDE_RESUME_GUARD_MODEL`, `CLAUDE_RESUME_GUARD_TIMEOUT`, `CLAUDE_RESUME_GUARD_FALLBACK` | `haiku`, `180` (`replace`: `50`), `digest` | summary model, seconds for the summary call, what a failed summary falls back to (`digest` or `resume`) |
 | `CLAUDE_RESUME_GUARD_DIGEST_TOKENS`, `CLAUDE_RESUME_GUARD_HANDOFF_TOKENS`, `CLAUDE_RESUME_GUARD_STATE_DIR` | `60000`, `20000`, `~/.local/state/claude-resume-guard` | digest size sent to the summary model, size of a digest used as hand-off, event log and per-task hand-offs |
 | `CHROME_EXTRA_ARGS` | – | extra Chrome flags |
 | `AGENT_SANDBOX` | `off` | `on` / `required`: each task's CLI in bubblewrap, see [Task sandbox](#task-sandbox) |

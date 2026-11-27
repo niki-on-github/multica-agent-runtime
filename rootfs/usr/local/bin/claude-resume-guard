@@ -11,15 +11,22 @@ The entrypoint points MULTICA_CLAUDE_PATH at a shim that execs this script (CLAU
   * no --resume, no MULTICA_TASK_ID, transcript missing, warm (idle < IDLE_MINUTES) or small
     (< MIN_TOKENS): exec the next command unchanged
   * cold and big: build a digest of the transcript (user messages, assistant text, files touched; no tool
-    results), turn it into a hand-off (summarize: a small model, default haiku; digest: the digest itself),
-    drop `--resume <id>` and pass the hand-off with --append-system-prompt-file, so Claude starts a fresh
-    session that knows the earlier work. The old transcript is left untouched.
+    results) and turn it into a hand-off (summarize: a small model, default haiku; digest: the digest
+    itself), stored per MULTICA_TASK_ID. Then, per CLAUDE_RESUME_GUARD_STRATEGY:
+      reject (default)  answer like Claude does for a missing session ("No conversation found with session
+                        ID: <id>", exit 1) without starting Claude. The daemon (Multica v0.13) treats that as a
+                        refused resume: it retires the session and retries the task once without --resume,
+                        with its own cold-start prompt and continuity notice. That retry (same task, no
+                        --resume) gets the hand-off with --append-system-prompt-file. The first process never
+                        answers the daemon's initialize handshake, so the summary is not bound by its 60 s.
+      replace           drop `--resume <id>` and start Claude right away with the hand-off. The daemon's prompt
+                        still assumes a resumed session, and the summary must fit the 60 s handshake.
+    The old transcript is left untouched.
 
 Failures never block the task: if the summary call hits a usage/rate limit the run resumes unchanged (a
 resume fails the same way and the daemon keeps its session pointer); other summary failures fall back to the
 digest (CLAUDE_RESUME_GUARD_FALLBACK=digest) or to the unchanged resume (=resume); any internal error
-resumes unchanged. If the guarded fresh run fails before using a tool the daemon retries the task without
---resume; the hand-off is kept per MULTICA_TASK_ID so that retry gets it too.
+resumes unchanged. Any later run of the same task without --resume (a daemon retry) gets the hand-off too.
 
 Environment (all optional):
   CLAUDE_RESUME_GUARD               summarize (default) | digest | off
@@ -27,8 +34,9 @@ Environment (all optional):
   CLAUDE_RESUME_GUARD_IDLE_MINUTES  idle time after which the cache counts as cold (default 30)
   CLAUDE_RESUME_GUARD_MIN_TOKENS    context size from which a cold resume is replaced (default 150000)
   CLAUDE_RESUME_GUARD_MODEL         model of the summary call (default haiku)
-  CLAUDE_RESUME_GUARD_TIMEOUT       seconds for the summary call (default 50: the daemon waits 60 s for
-                                    Claude's initialize handshake, which only starts after the guard)
+  CLAUDE_RESUME_GUARD_STRATEGY      reject (default) | replace, see above
+  CLAUDE_RESUME_GUARD_TIMEOUT       seconds for the summary call (default 180 with reject, 50 with replace:
+                                    there the daemon waits 60 s for Claude's initialize handshake)
   CLAUDE_RESUME_GUARD_DIGEST_TOKENS size of the digest sent to the summary model (default 60000)
   CLAUDE_RESUME_GUARD_HANDOFF_TOKENS size of a digest used directly as hand-off (default 20000)
   CLAUDE_RESUME_GUARD_FALLBACK      digest (default) | resume: what a failed summary call falls back to
@@ -322,10 +330,9 @@ def digest(entries: list[dict], budget_chars: int) -> str:
 
 
 # --- summary call --------------------------------------------------------------------------------
-def summarize(cmd: list[str], text: str) -> tuple[str | None, str]:
+def summarize(cmd: list[str], text: str, timeout: int) -> tuple[str | None, str]:
     """(hand-off, reason). reason is 'ok', 'limit' or a short error."""
     model = os.environ.get("CLAUDE_RESUME_GUARD_MODEL", "haiku")
-    timeout = env_int("CLAUDE_RESUME_GUARD_TIMEOUT", 50)
     base = os.environ.get("TMPDIR") or tempfile.gettempdir()
     try:
         work = tempfile.mkdtemp(prefix="claude-resume-guard-", dir=base)
@@ -384,8 +391,8 @@ def handoff_text(session_id: str, tokens: int, idle_s: float, source: str, body:
 This is a fresh session. It replaces the earlier Claude Code session {session_id} of this task (about
 {tokens // 1000}k tokens of context, idle for {idle}): its prompt cache had expired, so resuming it would have
 re-read the whole conversation uncached. Below is a hand-off of that session ({source}). Treat it as your
-memory of the earlier work; it can be incomplete. If the user message speaks of continuing or resuming,
-this hand-off is that earlier context. Before you act: follow the comment-reading steps of your instructions
+memory of the earlier work; it can be incomplete. Where the user message says the earlier session could
+not be resumed, or speaks of continuing it, this hand-off is that earlier context. Before you act: follow the comment-reading steps of your instructions
 (the full issue scan, not only the triggering comment), check `git status` and `git log` of the work tree,
 and re-read files before you edit them.
 
@@ -425,16 +432,22 @@ def clean_pending() -> None:
 
 
 # --- main ----------------------------------------------------------------------------------------
-def guard(args: list[str], cmd: list[str]) -> list[str]:
-    """The arguments to exec the next command with."""
+REJECT_MESSAGE = "No conversation found with session ID: {}"  # Claude Code's wording, matched by the daemon
+
+
+def guard(args: list[str], cmd: list[str]) -> tuple[list[str], str | None]:
+    """(arguments to exec the next command with, session id to decline instead of running it)."""
     mode = os.environ.get("CLAUDE_RESUME_GUARD", "summarize").strip().lower()
     if mode in ("off", "0", "false", "no", ""):
-        return args
+        return args, None
     if mode not in ("summarize", "digest"):
         mode = "summarize"
+    strategy = os.environ.get("CLAUDE_RESUME_GUARD_STRATEGY", "reject").strip().lower()
+    if strategy not in ("reject", "replace"):
+        strategy = "reject"
     task_id = os.environ.get("MULTICA_TASK_ID", "")
     if not task_id:
-        return args  # version/model probes, manual runs
+        return args, None  # version/model probes, manual runs
     clean_pending()
     res = find_resume(args)
     if res is None:
@@ -442,21 +455,21 @@ def guard(args: list[str], cmd: list[str]) -> list[str]:
         pp = pending_path(task_id)
         if pp and os.path.isfile(pp):
             path = write_handoff(open(pp, encoding="utf-8").read())
-            log(f"task {task_id} retried without a session: passing its hand-off again")
+            log(f"task {task_id} runs without a session: passing the hand-off of its earlier session")
             record({"task": task_id, "action": "retry-handoff"})
-            return with_handoff(args, path)
-        return args
+            return with_handoff(args, path), None
+        return args, None
     session_id, idx, count = res
     path = transcript_path(session_id)
     if path is None:
-        return args  # nothing to measure: Claude and the daemon handle a missing transcript
+        return args, None  # nothing to measure: Claude and the daemon handle a missing transcript
     entries = load(path)
     tokens, last = measure(entries, os.path.getmtime(path))
     idle = max(0.0, time.time() - last)
     idle_limit = env_int("CLAUDE_RESUME_GUARD_IDLE_MINUTES", 30) * 60
     min_tokens = env_int("CLAUDE_RESUME_GUARD_MIN_TOKENS", 150000)
     if idle < idle_limit or tokens < min_tokens:
-        return args
+        return args, None
     base = {"task": task_id, "session": session_id, "tokens": tokens, "idle_minutes": int(idle // 60)}
 
     source = None
@@ -464,7 +477,8 @@ def guard(args: list[str], cmd: list[str]) -> list[str]:
     if mode == "summarize":
         extract = digest(entries, env_int("CLAUDE_RESUME_GUARD_DIGEST_TOKENS", 60000) * CHARS_PER_TOKEN)
         started = time.monotonic()
-        body, reason = summarize(cmd, extract)
+        timeout = env_int("CLAUDE_RESUME_GUARD_TIMEOUT", 180 if strategy == "reject" else 50)
+        body, reason = summarize(cmd, extract, timeout)
         secs = round(time.monotonic() - started, 1)
         if body is not None:
             source = f"summary by {os.environ.get('CLAUDE_RESUME_GUARD_MODEL', 'haiku')}"
@@ -472,40 +486,52 @@ def guard(args: list[str], cmd: list[str]) -> list[str]:
             log(f"session {session_id} ({tokens // 1000}k tokens, idle {int(idle // 60)} min): summary call hit a "
                 "usage or rate limit, resuming unchanged")
             record({**base, "action": "resume", "reason": "limit", "seconds": secs})
-            return args
+            return args, None
         elif os.environ.get("CLAUDE_RESUME_GUARD_FALLBACK", "digest") == "resume":
             log(f"session {session_id}: summary failed ({reason}), resuming unchanged")
             record({**base, "action": "resume", "reason": reason, "seconds": secs})
-            return args
+            return args, None
         else:
             log(f"session {session_id}: summary failed ({reason}), using the transcript extract")
     if body is None:
         body = digest(entries, env_int("CLAUDE_RESUME_GUARD_HANDOFF_TOKENS", 20000) * CHARS_PER_TOKEN)
         source = "mechanical extract of the transcript: user messages, replies, tools, files"
     text = handoff_text(session_id, tokens, idle, source, body)
-    hpath = write_handoff(text)
+    stored = False
     pp = pending_path(task_id)
     if pp:
         try:
             os.makedirs(os.path.dirname(pp), exist_ok=True)
             with open(pp, "w", encoding="utf-8") as f:
                 f.write(text)
+            stored = True
         except OSError:
             pass
-    log(f"session {session_id} is cold ({tokens // 1000}k tokens, idle {int(idle // 60)} min): fresh session "
-        f"with a hand-off ({source}, ~{len(text) // CHARS_PER_TOKEN // 1000}k tokens) instead of --resume")
-    record({**base, "action": "handoff", "source": source, "handoff_tokens": len(text) // CHARS_PER_TOKEN})
-    return with_handoff(args[:idx] + args[idx + count:], hpath)
+    what = f"cold ({tokens // 1000}k tokens, idle {int(idle // 60)} min)"
+    size = f"{source}, ~{len(text) / CHARS_PER_TOKEN / 1000:.1f}k tokens"
+    rec = {**base, "action": "handoff", "strategy": strategy, "source": source,
+           "handoff_tokens": len(text) // CHARS_PER_TOKEN}
+    if strategy == "reject" and stored:
+        log(f"session {session_id} is {what}: declining the resume, so Multica retries with a fresh session; "
+            f"the retry gets a hand-off ({size})")
+        record(rec)
+        return args, session_id
+    log(f"session {session_id} is {what}: fresh session with a hand-off ({size}) instead of --resume")
+    record({**rec, "strategy": "replace"})
+    return with_handoff(args[:idx] + args[idx + count:], write_handoff(text)), None
 
 
 def main() -> None:
     args = sys.argv[1:]
     cmd = next_command()
     try:
-        new_args = guard(args, cmd)
+        new_args, decline = guard(args, cmd)
     except Exception as e:  # never block a task on the guard itself
         log(f"internal error, running unchanged: {type(e).__name__}: {e}")
-        new_args = args
+        new_args, decline = args, None
+    if decline:
+        print(REJECT_MESSAGE.format(decline), file=sys.stderr, flush=True)
+        sys.exit(1)
     run_next(cmd, new_args)
 
 

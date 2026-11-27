@@ -12,7 +12,10 @@ T=$(mktemp -d)
 trap 'rm -rf "$T"' EXIT
 export HOME=$T/home CLAUDE_CONFIG_DIR=$T/home/.claude TMPDIR=$T/tmp XDG_STATE_HOME=$T/state
 mkdir -p "$HOME" "$TMPDIR" "$T/work" "$T/log"
-unset CLAUDE_RESUME_GUARD CLAUDE_RESUME_GUARD_FALLBACK CLAUDE_RESUME_GUARD_MIN_TOKENS CLAUDE_RESUME_GUARD_IDLE_MINUTES
+unset CLAUDE_RESUME_GUARD CLAUDE_RESUME_GUARD_FALLBACK CLAUDE_RESUME_GUARD_MIN_TOKENS CLAUDE_RESUME_GUARD_IDLE_MINUTES \
+  CLAUDE_RESUME_GUARD_TIMEOUT
+# most cases check the hand-off in the same run (replace); the default strategy (reject) is tested at the end
+export CLAUDE_RESUME_GUARD_STRATEGY=replace
 
 # fake claude: the summary call (--no-session-persistence) answers per FAKE_SUMMARY, the main run records
 # its arguments and stdin
@@ -177,5 +180,32 @@ h=$(handoff); { grep -q OWN-APPEND "$h" && grep -q "mechanical extract" "$h"; } 
 step "off"
 TASK=task8 run CLAUDE_RESUME_GUARD=off
 has --resume || fail "CLAUDE_RESUME_GUARD=off changed the run"
+
+step "reject (default): decline like a missing session, the daemon's retry gets the hand-off"
+transcript 300 800000
+rm -f "$T/log/"*
+rc=0
+(cd "$T/work" && echo PROMPT | env -u CLAUDE_RESUME_GUARD_STRATEGY MULTICA_TASK_ID=task9 "$GUARD" -p \
+  --resume "$SID" --model opus 2> "$T/log/stderr") || rc=$?
+[ "$rc" = 1 ] || fail "reject exited $rc"
+[ ! -e "$T/log/main-args" ] || fail "claude started although the resume was declined"
+tail -n 1 "$T/log/stderr" | grep -qx "No conversation found with session ID: $SID" || fail "no rejection message: $(cat "$T/log/stderr")"
+grep -q 'declining the resume' "$T/log/stderr" || fail "no reject log line"
+grep -q "Fix the parser" "$XDG_STATE_HOME/claude-resume-guard/pending/task9.md" || fail "hand-off not stored"
+rm -f "$T/log/"*
+(cd "$T/work" && echo PROMPT | env -u CLAUDE_RESUME_GUARD_STRATEGY MULTICA_TASK_ID=task9 "$GUARD" -p --model opus 2>/dev/null)
+has --resume && fail "retry resumed"
+grep -q "Fix the parser" "$(handoff)" || fail "retry without hand-off"
+[ "$(cat "$T/log/main-stdin")" = PROMPT ] || fail "retry stdin"
+
+step "reject: summary limit still resumes unchanged; unstorable hand-off falls back to replace"
+rm -f "$T/log/"*
+(cd "$T/work" && echo PROMPT | env -u CLAUDE_RESUME_GUARD_STRATEGY MULTICA_TASK_ID=task10 FAKE_SUMMARY=limit "$GUARD" \
+  -p --resume "$SID" 2>/dev/null) || fail "limit case exited $?"
+has --resume || fail "limit did not resume"
+rm -f "$T/log/"*
+(cd "$T/work" && echo PROMPT | env -u CLAUDE_RESUME_GUARD_STRATEGY MULTICA_TASK_ID=task11 \
+  CLAUDE_RESUME_GUARD_STATE_DIR=/proc/nonexistent "$GUARD" -p --resume "$SID" 2>/dev/null) || fail "replace fallback exited $?"
+{ ! has --resume && grep -q "Fix the parser" "$(handoff)"; } || fail "no replace fallback"
 
 echo; echo "resume guard: ok"

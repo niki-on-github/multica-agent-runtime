@@ -93,7 +93,7 @@ printf '  pass-through: %s\n' "${AGENT_SANDBOX_PASS_ENV:-none}"
 if command -v claude >/dev/null; then
   section "Claude cold resume"
   printf '  auto-compact window %s, resume guard %s (cold after %s min, from %s tokens, summary model %s)\n' \
-    "${CLAUDE_CODE_AUTO_COMPACT_WINDOW:-Claude default or settings}" "${CLAUDE_RESUME_GUARD:-summarize}" \
+    "${CLAUDE_CODE_AUTO_COMPACT_WINDOW:-Claude default or settings}" "${CLAUDE_RESUME_GUARD:-summarize}/${CLAUDE_RESUME_GUARD_STRATEGY:-reject}" \
     "${CLAUDE_RESUME_GUARD_IDLE_MINUTES:-30}" "${CLAUDE_RESUME_GUARD_MIN_TOKENS:-150000}" \
     "${CLAUDE_RESUME_GUARD_MODEL:-haiku}"
   events=${CLAUDE_RESUME_GUARD_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/claude-resume-guard}/events.jsonl
