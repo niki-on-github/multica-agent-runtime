@@ -87,6 +87,25 @@ before=$(mcp_sums)
 bash -c '. /usr/local/lib/multica-agent-runtime/common.sh; . /usr/local/lib/multica-agent-runtime/mcp.sh; register_browser_mcps'
 [ "$before" = "$(mcp_sums)" ] || fail "browser MCP registration not idempotent or overwrote an own entry"
 
+step "Claude defaults and cold-resume guard"
+[ "${CLAUDE_CODE_AUTO_COMPACT_WINDOW:-}" = 400000 ] || fail "auto-compact window default not set"
+claude_lib='. /usr/local/lib/multica-agent-runtime/common.sh; AGENT_ENV_FILE=/dev/null; . /usr/local/lib/multica-agent-runtime/claude.sh'
+[ "$(env CLAUDE_CODE_AUTO_COMPACT_WINDOW=250000 bash -c "$claude_lib; setup_claude_defaults; echo \$CLAUDE_CODE_AUTO_COMPACT_WINDOW")" = 250000 ] \
+  || fail "own CLAUDE_CODE_AUTO_COMPACT_WINDOW overridden"
+[ -z "$(env CLAUDE_CODE_AUTO_COMPACT_WINDOW=off bash -c "$claude_lib; setup_claude_defaults; echo \${CLAUDE_CODE_AUTO_COMPACT_WINDOW:-}" 2>/dev/null)" ] \
+  || fail "CLAUDE_CODE_AUTO_COMPACT_WINDOW=off not honoured"
+cfg=$(mktemp -d) && echo '{"autoCompactWindow": 300000}' > "$cfg/settings.json"
+[ -z "$(env -u CLAUDE_CODE_AUTO_COMPACT_WINDOW CLAUDE_CONFIG_DIR="$cfg" bash -c "$claude_lib; setup_claude_defaults; echo \${CLAUDE_CODE_AUTO_COMPACT_WINDOW:-}" 2>/dev/null)" ] \
+  || fail "autoCompactWindow in settings.json overridden"
+out=$(env -u MULTICA_CLAUDE_PATH bash -c "$claude_lib; setup_resume_guard 2>/dev/null; echo \$MULTICA_CLAUDE_PATH \$CLAUDE_RESUME_GUARD_NEXT")
+[ "$out" = "/usr/local/lib/multica-agent-runtime/guard-bin/claude $(command -v claude)" ] || fail "guard wiring: $out"
+out=$(env MULTICA_CLAUDE_PATH=/usr/local/lib/multica-agent-runtime/sandbox-bin/claude bash -c "$claude_lib; setup_resume_guard 2>/dev/null; echo \$CLAUDE_RESUME_GUARD_NEXT")
+[ "$out" = /usr/local/lib/multica-agent-runtime/sandbox-bin/claude ] || fail "guard does not chain the sandbox shim: $out"
+[ -z "$(env -u MULTICA_CLAUDE_PATH CLAUDE_RESUME_GUARD=off bash -c "$claude_lib; setup_resume_guard; echo \${MULTICA_CLAUDE_PATH:-}")" ] \
+  || fail "CLAUDE_RESUME_GUARD=off still wraps claude"
+/usr/local/lib/multica-agent-runtime/guard-bin/claude --version | grep -q 'Claude Code' || fail "guard shim --version"
+/tests/resume-guard.sh 2>&1 | tail -n 1
+
 step "doctor"
 runtime-doctor
 

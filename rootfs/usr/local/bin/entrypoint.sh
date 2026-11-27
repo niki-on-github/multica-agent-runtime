@@ -3,7 +3,8 @@
 #
 #   daemon (default)  Multica daemon in the foreground; Docker per DIND_MODE (default auto); agent
 #                     CLIs per task in bubblewrap per AGENT_SANDBOX (default off, see sandbox.sh);
-#                     WEBUI_EMBEDDED=1 also runs the management web UI in this container
+#                     WEBUI_EMBEDDED=1 also runs the management web UI in this container; Claude through
+#                     the cold-resume guard per CLAUDE_RESUME_GUARD (default summarize, see claude.sh)
 #   shell             web terminal (ttyd) on $TTYD_PORT: login shell, `?arg=tmux` for the tmux
 #                     session `main`; uses an existing
 #                     Docker daemon (the daemon container of the same pod), never starts one
@@ -33,6 +34,8 @@ LIB=/usr/local/lib/multica-agent-runtime
 . "$LIB/mcp.sh"
 # shellcheck source=SCRIPTDIR/../lib/multica-agent-runtime/sandbox.sh
 . "$LIB/sandbox.sh"
+# shellcheck source=SCRIPTDIR/../lib/multica-agent-runtime/claude.sh
+. "$LIB/claude.sh"
 
 cmd=${1:-daemon}
 case "$cmd" in
@@ -69,6 +72,7 @@ if ! : > "$AGENT_ENV_FILE" 2>/dev/null; then
 fi
 seed_home
 setup_ca_env
+setup_claude_defaults
 # containers of one pod share $HOME and /run/agent: serialize the git/tea and agent config writes
 (
   flock -w 30 9 || warn "setup lock busy, continuing"
@@ -92,6 +96,7 @@ run_daemon() {
     warn "MULTICA_SERVER_URL is not set: the CLI uses its default server"
   fi
   setup_sandbox
+  setup_resume_guard
   if [ "${WEBUI_EMBEDDED:-0}" = 1 ]; then
     start_embedded_webui
   fi

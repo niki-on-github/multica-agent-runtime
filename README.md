@@ -287,6 +287,37 @@ the daemon's `/tmp`, which the sandbox cannot see.
 needs the same settings as rootless Docker); `on` then runs unsandboxed with a warning. `doctor`
 shows the state.
 
+## Claude Code: cold resumes
+
+Multica continues an issue by resuming the agent's Claude session (`claude --resume <id>`). The prompt cache
+of a session lasts minutes to an hour, so a resume after a usage-limit pause, a night or a quiet issue has to
+read the **whole conversation uncached** first. For a session near 1M context, that one request can use a large
+part of a plan's 5-hour window. Two defaults keep it affordable:
+
+**Earlier auto-compact.** `CLAUDE_CODE_AUTO_COMPACT_WINDOW=400000` is set unless you set the variable yourself
+(pod env, or an agent's custom env in Multica) or a Claude settings file (`$CLAUDE_CONFIG_DIR/settings.json`,
+`managed-settings.json`) sets `autoCompactWindow` or that variable. Sessions then compact at about 400k
+instead of near 1M. `CLAUDE_CODE_AUTO_COMPACT_WINDOW=off` keeps Claude's own default.
+
+**Cold-resume guard** ([`claude-resume-guard`](rootfs/usr/local/bin/claude-resume-guard), on by default). The
+entrypoint points `MULTICA_CLAUDE_PATH` at a shim that checks every task's `--resume` before Claude starts. It
+works with and without the task sandbox, and wraps a `MULTICA_CLAUDE_PATH` you set yourself.
+
+| Situation | What happens |
+|---|---|
+| new session, no transcript, probe, warm (idle < 30 min) or small (< 150k tokens) | nothing: Claude starts unchanged |
+| cold and big | the transcript is cut down to a digest (user messages, replies, tools, files touched; no tool output, usually a few % of the context). A small model (`haiku`) turns it into a hand-off note, and Claude starts a **fresh session** with that note (`--append-system-prompt-file`) instead of `--resume` |
+| the summary call hits a usage/rate limit | resumes unchanged (a resume fails the same way, and the daemon keeps its session) |
+| the summary call fails or takes longer than 50 s | the digest itself is the hand-off (`CLAUDE_RESUME_GUARD_FALLBACK=resume`: resumes unchanged) |
+| the fresh run fails early and the daemon retries the task without a session | the retry gets the same hand-off |
+
+The daemon then stores the new session for the issue. The old transcript stays on disk (`claude --resume <id>`
+in the web shell still opens it). The agent is told it starts fresh and should re-read the issue comments and
+the work tree. Detail of the old conversation that is not in the note is lost: that is the trade-off for a cold
+start of a few thousand tokens instead of hundreds of thousands. Each decision is logged as one
+`claude-resume-guard:` line in the task log and in `~/.local/state/claude-resume-guard/events.jsonl` (`doctor`
+counts them). The 50 s limit exists because the daemon gives Claude's startup handshake 60 s.
+
 ## Docker-in-Docker
 
 Real `dockerd`, listening on `DOCKER_HOST=unix:///run/agent/docker.sock`, data in
@@ -424,6 +455,11 @@ Nothing is baked in; the standard variables are read natively:
 | `WEBUI_ENV` | `1` | web UI environment view: `1` masked listing + reveal, `masked` listing only, `0` off |
 | `WEBUI_SHELL`, `WEBUI_SHELL_MAX`, `WEBUI_ALLOWED_ORIGINS` | `1`, `8`, – | web UI terminal: on/off, concurrent sessions, extra allowed `Origin`s (comma separated) behind a proxy that rewrites `Host` |
 | `WEBUI_SAMPLE_SECONDS`, `WEBUI_HISTORY`, `WEBUI_DISKS`, `WEBUI_DOCKER`, `WEBUI_XTERM_DIR` | `2`, `180`, `/data,/home/agent,/nix,/tmp`, `1`, `/usr/local/lib/node_modules` | web UI: resource sampling interval, samples kept, filesystems shown, list Docker containers, where `@xterm/xterm` is installed |
+| `CLAUDE_CODE_AUTO_COMPACT_WINDOW` | `400000` unless set here or in Claude's settings | Claude auto-compacts at this context size; `off`: Claude's default, see [cold resumes](#claude-code-cold-resumes) |
+| `CLAUDE_RESUME_GUARD` | `summarize` | `digest` (no model call, the transcript extract is the hand-off) or `off`, see [cold resumes](#claude-code-cold-resumes) |
+| `CLAUDE_RESUME_GUARD_IDLE_MINUTES`, `CLAUDE_RESUME_GUARD_MIN_TOKENS` | `30`, `150000` | a resume counts as cold after this idle time and is replaced from this context size |
+| `CLAUDE_RESUME_GUARD_MODEL`, `CLAUDE_RESUME_GUARD_TIMEOUT`, `CLAUDE_RESUME_GUARD_FALLBACK` | `haiku`, `50`, `digest` | summary model, seconds for the summary call, what a failed summary falls back to (`digest` or `resume`) |
+| `CLAUDE_RESUME_GUARD_DIGEST_TOKENS`, `CLAUDE_RESUME_GUARD_HANDOFF_TOKENS`, `CLAUDE_RESUME_GUARD_STATE_DIR` | `60000`, `20000`, `~/.local/state/claude-resume-guard` | digest size sent to the summary model, size of a digest used as hand-off, event log and per-task hand-offs |
 | `CHROME_EXTRA_ARGS` | – | extra Chrome flags |
 | `AGENT_SANDBOX` | `off` | `on` / `required`: each task's CLI in bubblewrap, see [Task sandbox](#task-sandbox) |
 | `AGENT_SANDBOX_PASS_ENV` | – | secret-looking variables passed into the sandbox (comma separated) |
@@ -451,7 +487,8 @@ example Deployment with the daemon and the web shell.
   Docker it builds a web image, runs it, and tests it with Playwright in Chrome (screenshots are
   uploaded as artifacts); the cuda job also builds a CUDA image. In the two Docker setups
   `tests/sandbox.sh` checks the task sandbox against a simulated task (isolation, env filter,
-  refusals, probes, cancellation, Docker from inside); `tests/webui.py` (standard library only) tests
+  refusals, probes, cancellation, Docker from inside); `tests/resume-guard.sh` checks the cold-resume guard with a fake
+  `claude` (also runs outside the image: `GUARD=rootfs/usr/local/bin/claude-resume-guard tests/resume-guard.sh`); `tests/webui.py` (standard library only) tests
   the management web UI (in-use detection, deletion, terminal WebSocket, status API) against a
   throw-away workspaces root
 - `.github/workflows/build.yml`: matrix `cpu`/`cuda`, build → smoke tests → push (main only)

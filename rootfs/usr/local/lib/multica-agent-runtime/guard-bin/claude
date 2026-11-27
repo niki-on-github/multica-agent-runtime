@@ -1,0 +1,4 @@
+#!/bin/sh
+# MULTICA_CLAUDE_PATH target with CLAUDE_RESUME_GUARD on: replaces a cold, big --resume by a fresh session
+# with a hand-off, then execs CLAUDE_RESUME_GUARD_NEXT (the sandbox shim or the real claude)
+exec /usr/local/bin/claude-resume-guard "$@"
